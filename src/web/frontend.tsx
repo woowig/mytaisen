@@ -111,7 +111,7 @@ function App() {
       <div className="app">
         <header className="top">
           <b>mytaisen</b>
-          <span className="muted">操作: ドラッグでカード移動 / Q 計略 / Space アクション / 1-8 選択</span>
+          <span className="muted">操作: ドラッグでカード移動 / Q 計略 / ダブルクリック アクション / 1-8 選択</span>
           <button className="btn" onClick={leave}>
             退出
           </button>
