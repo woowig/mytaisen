@@ -1,31 +1,35 @@
 import { join } from "node:path";
 import index from "./web/index.html";
-import * as C from "./shared/constants.ts";
-import { cmdAction, cmdMove, cmdStrat, createGame, snapshotFor, tick, validateDeck, type DeckInfo, type Game } from "./shared/game.ts";
+import { RoomCore, type Peer } from "./shared/room.ts";
 import { CARD_BY_ID } from "./shared/cards.ts";
-import type { ClientMsg, PlayerIdx, ServerMsg } from "./shared/types.ts";
+import type { ClientMsg, ServerMsg } from "./shared/types.ts";
 
-interface WsData {
+interface WsData extends Peer {
   id: string;
-  room: Room | null;
-  idx: PlayerIdx;
+  ws: Bun.ServerWebSocket<WsData> | null;
 }
 type Sock = Bun.ServerWebSocket<WsData>;
-
-interface Room {
-  code: string;
-  players: [Sock | null, Sock | null];
-  decks: [DeckInfo | null, DeckInfo | null];
-  deckIds: [string[], string[]];
-  game: Game | null;
-  timer: ReturnType<typeof setInterval> | null;
-}
 
 const PUBLIC_DIR = join(import.meta.dir, "..", "public");
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
+function makeData(): WsData {
+  const d: WsData = {
+    id: crypto.randomUUID(),
+    idx: 0,
+    room: null,
+    ws: null,
+    send(msg) {
+      try {
+        d.ws?.send(JSON.stringify(msg));
+      } catch {}
+    },
+  };
+  return d;
+}
+
 export function startServer(opts: { port?: number; hostname?: string } = {}) {
-  const rooms = new Map<string, Room>();
+  const rooms = new Map<string, RoomCore>();
 
   const send = (ws: Sock, msg: ServerMsg) => {
     try {
@@ -41,101 +45,33 @@ export function startServer(opts: { port?: number; hostname?: string } = {}) {
     }
   };
 
-  const closeRoom = (room: Room) => {
-    if (room.timer) clearInterval(room.timer);
-    room.timer = null;
-    rooms.delete(room.code);
-  };
-
-  const startGame = (room: Room) => {
-    const [da, db] = room.decks;
-    if (!da || !db) return;
-    room.game = createGame(da, db);
-    room.players.forEach((ws, i) => {
-      if (ws) send(ws, { type: "start", you: i as PlayerIdx, decks: room.deckIds, maxMorale: room.game!.maxMorale[i as PlayerIdx] });
-    });
-    room.timer = setInterval(() => {
-      const g = room.game!;
-      tick(g);
-      room.players.forEach((ws, i) => {
-        if (ws) send(ws, { type: "snapshot", s: snapshotFor(g, i as PlayerIdx) });
-      });
-      if (g.over) {
-        const over = g.over;
-        for (const ws of room.players) if (ws) send(ws, { type: "ended", winner: over.winner, reason: over.reason });
-        closeRoom(room);
-      }
-    }, 1000 / C.TICK_RATE);
-  };
-
-  const leave = (ws: Sock) => {
-    const room = ws.data.room;
-    if (!room) return;
-    ws.data.room = null;
-    const idx = ws.data.idx;
-    room.players[idx] = null;
-    const other = room.players[idx === 0 ? 1 : 0];
-    if (room.game && !room.game.over) {
-      if (other) send(other, { type: "ended", winner: idx === 0 ? 1 : 0, reason: "相手が切断しました" });
-      closeRoom(room);
-    } else if (!room.game) {
-      if (!other) closeRoom(room);
-      else send(other, { type: "room", room: room.code, you: idx === 0 ? 1 : 0, waiting: true });
-    }
-  };
-
   const handle = (ws: Sock, msg: ClientMsg) => {
+    const peer = ws.data;
     switch (msg.type) {
-      case "create":
-      case "join": {
-        if (ws.data.room) return send(ws, { type: "error", message: "すでに部屋に入っています" });
-        const v = validateDeck(msg.deck);
-        if (!v.ok) return send(ws, { type: "error", message: v.error });
-        let room: Room | undefined;
-        let idx: PlayerIdx = 0;
-        if (msg.type === "create") {
-          room = { code: newCode(), players: [null, null], decks: [null, null], deckIds: [[], []], game: null, timer: null };
-          rooms.set(room.code, room);
-        } else {
-          room = rooms.get(String(msg.room ?? "").toUpperCase());
-          if (!room) return send(ws, { type: "error", message: "部屋が見つかりません" });
-          if (room.game) return send(ws, { type: "error", message: "すでに対戦中です" });
-          idx = room.players[0] ? 1 : 0;
-          if (room.players[idx]) return send(ws, { type: "error", message: "部屋が満員です" });
+      case "create": {
+        if (peer.room) return send(ws, { type: "error", message: "すでに部屋に入っています" });
+        const code = newCode();
+        const room = new RoomCore(code, () => rooms.delete(code));
+        rooms.set(code, room);
+        const err = room.join(peer, msg.deck);
+        if (err) {
+          rooms.delete(code);
+          send(ws, { type: "error", message: err });
         }
-        room.players[idx] = ws;
-        room.decks[idx] = v.info;
-        room.deckIds[idx] = (msg.deck as string[]).slice();
-        ws.data.room = room;
-        ws.data.idx = idx;
-        const full = !!(room.players[0] && room.players[1]);
-        for (const p of room.players) if (p) send(p, { type: "room", room: room.code, you: p.data.idx, waiting: !full });
-        if (full) startGame(room);
         return;
       }
-      case "move": {
-        const g = ws.data.room?.game;
-        if (!g) return;
-        const err = cmdMove(g, ws.data.idx, Number(msg.slot), Number(msg.x), Number(msg.y));
-        if (err) send(ws, { type: "error", message: err });
-        return;
-      }
-      case "strat": {
-        const g = ws.data.room?.game;
-        if (!g) return;
-        const err = cmdStrat(g, ws.data.idx, Number(msg.slot));
-        if (err) send(ws, { type: "error", message: err });
-        return;
-      }
-      case "action": {
-        const g = ws.data.room?.game;
-        if (!g) return;
-        const err = cmdAction(g, ws.data.idx, Number(msg.slot));
+      case "join": {
+        const room = rooms.get(String(msg.room ?? "").toUpperCase());
+        if (!room) return send(ws, { type: "error", message: "部屋が見つかりません" });
+        const err = room.join(peer, msg.deck);
         if (err) send(ws, { type: "error", message: err });
         return;
       }
       case "leave":
-        return leave(ws);
+        peer.room?.leave(peer);
+        return;
+      default:
+        peer.room?.handle(peer, msg);
     }
   };
 
@@ -163,13 +99,14 @@ export function startServer(opts: { port?: number; hostname?: string } = {}) {
     fetch(req, server) {
       const url = new URL(req.url);
       if (url.pathname === "/ws") {
-        if (server.upgrade(req, { data: { id: crypto.randomUUID(), room: null, idx: 0 } satisfies WsData })) return;
+        if (server.upgrade(req, { data: makeData() })) return;
         return new Response("upgrade failed", { status: 400 });
       }
       return new Response("not found", { status: 404 });
     },
     websocket: {
       open(ws) {
+        ws.data.ws = ws;
         send(ws, { type: "hello", id: ws.data.id });
       },
       message(ws, raw) {
@@ -183,7 +120,7 @@ export function startServer(opts: { port?: number; hostname?: string } = {}) {
         handle(ws, msg);
       },
       close(ws) {
-        leave(ws);
+        ws.data.room?.leave(ws.data);
       },
     },
     development: process.env.NODE_ENV !== "production" && !process.env.TAISEN_TEST ? { hmr: true, console: false } : false,

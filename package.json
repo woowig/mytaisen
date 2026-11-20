@@ -9,12 +9,18 @@
     "build:cards": "bun scripts/build-cards.ts",
     "gen:images": "bun scripts/gen-images.ts",
     "typecheck": "bun check",
-    "test": "bun test"
+    "test": "bun test",
+    "build:web": "bun scripts/build-web.ts",
+    "cf:dev": "bun run build:web && wrangler dev",
+    "cf:deploy": "bun run build:web && wrangler deploy",
+    "check:worker": "tsc -p src/worker --noEmit"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261120.1",
     "@types/bun": "latest",
     "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0"
+    "@types/react-dom": "^19.3.0",
+    "wrangler": "^4.165.0"
   },
   "peerDependencies": {
     "typescript": "^7"

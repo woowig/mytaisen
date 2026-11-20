@@ -20,6 +20,18 @@ bun run dev        # http://localhost:3000 （LAN内の相手は http://<このP
 
 `PORT` 環境変数で待受ポートを変更できます。
 
+## Cloudflare Workers で動かす（Durable Objects）
+
+`wrangler.jsonc` と `src/worker/index.ts` が Workers 版です。1部屋 = 1つの Durable Object で、部屋ロジックは Bun 版と共通の `src/shared/room.ts` を使います。
+
+```bash
+bun run cf:dev       # 静的ファイルをビルドして wrangler dev（http://127.0.0.1:8787）
+bun run cf:deploy    # デプロイ（Cloudflare アカウントのログインが必要: bunx wrangler login）
+bun run check:worker # Worker 側の型チェック
+```
+
+無料枠の目安: 1試合(約240秒)で約31 GB秒。Durable Objects の無料枠は13,000 GB秒/日。条件は変わるので公式の料金ページで確認してください。
+
 ## コマンド
 
 ```bash

@@ -85,7 +85,8 @@ function App() {
 
   const connect = (first: ClientMsg) => {
     conn.current?.close();
-    conn.current = new Conn(onMsg, () => {
+    const query = first.type === "create" ? "?create=1" : first.type === "join" ? `?room=${encodeURIComponent(first.room)}` : "";
+    conn.current = new Conn(query, onMsg, () => {
       conn.current = null;
       setPhase((p) => (p.k === "battle" || p.k === "waiting" ? (showToast("接続が切れました"), { k: "menu" }) : p));
     });

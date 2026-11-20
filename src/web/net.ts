@@ -3,9 +3,9 @@ import type { ClientMsg, ServerMsg } from "../shared/types.ts";
 export class Conn {
   ws: WebSocket;
   private queue: string[] = [];
-  constructor(onMsg: (m: ServerMsg) => void, onClose: () => void) {
+  constructor(query: string, onMsg: (m: ServerMsg) => void, onClose: () => void) {
     const proto = location.protocol === "https:" ? "wss" : "ws";
-    this.ws = new WebSocket(`${proto}://${location.host}/ws`);
+    this.ws = new WebSocket(`${proto}://${location.host}/ws${query}`);
     this.ws.onopen = () => {
       for (const q of this.queue) this.ws.send(q);
       this.queue = [];

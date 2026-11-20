@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types"],
+    "lib": ["ESNext"],
+    "jsx": "react-jsx"
+  },
+  "include": ["./index.ts", "../shared/**/*.ts", "../../data/*.json"],
+  "exclude": ["../**/*.test.ts"]
+}
