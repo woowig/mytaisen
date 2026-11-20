@@ -198,7 +198,6 @@ describe("シミュレーション", () => {
     let charged = false;
     let intercepted = false;
     for (let i = 0; i < 20 * 40; i++) {
-      b.thrustT = 1; // 槍撃中(槍が出ている)
       tick(g);
       if (a.charging) charged = true;
       if (g.fx.some((f) => f.k === "intercept")) intercepted = true;
@@ -265,12 +264,10 @@ describe("シミュレーション", () => {
     e.hp = e.maxHp;
     e.hidden = false;
     e.ambush = false;
-    a.thrustT = 1;
     tick(g);
     expect(e.hp).toBe(e.maxHp); // 横は当たらない
     e.tx = e.x = 300;
     e.ty = e.y = 500 - 50; // 前方
-    a.thrustT = 1;
     tick(g);
     expect(e.hp).toBeLessThan(e.maxHp);
   });
@@ -325,7 +322,6 @@ describe("シミュレーション", () => {
     e.ambush = false;
     let intercepted = false;
     for (let i = 0; i < 20 * 15 && !intercepted; i++) {
-      a.thrustT = 1; // 槍撃中(槍が出ている)
       tick(g);
       if (g.fx.some((f) => f.k === "intercept")) intercepted = true;
     }
@@ -443,30 +439,27 @@ describe("シミュレーション", () => {
     expect(snapshotFor(g, 0).units.find((u) => u.p === 0)!.gauge).toBe(0); // ゲージは消費する
   });
 
-  test("槍兵は移動している間、槍撃が自動で発動し、クールダウン中は発動しない", () => {
+  const pikeOf = (g: Game) => snapshotFor(g, 0).units.find((u) => u.p === 0)!.pike;
+
+  test("槍兵は移動している間は槍撃が常に発動し(クールダウンなし)、止まると槍が消える", () => {
     const pike = pick((c) => c.unit === "槍兵" && c.cost === 1 && c.skills.length === 0);
     const g = createGame(mk([pike.id]), mk([ofType("弓兵").id]));
     const a = unitOf(g, 0, 0)!;
     a.mode = "field";
     a.x = a.tx = 300;
     a.y = a.ty = 700;
-    a.cdAction = 0;
     run(g, 0.2);
-    expect(a.thrustT).toBe(0); // 止まっている間は発動しない
+    expect(pikeOf(g)).toBe(0); // 止まっている間は槍が出ない
     a.ty = 300; // 移動開始
-    tick(g);
-    expect(a.thrustT).toBeGreaterThan(0);
-    expect(a.cdAction).toBeGreaterThan(0);
-    run(g, C.THRUST_T + 0.2);
-    expect(a.thrustT).toBe(0);
-    expect(a.cdAction).toBeGreaterThan(0); // クールダウン中
-    run(g, C.THRUST_CD - (C.THRUST_T + 0.2) - 0.05 + 0.1);
-    expect(a.thrustT).toBeGreaterThan(0); // 明けたら再発動
+    for (let i = 0; i < 20 * 8; i++) {
+      tick(g);
+      expect(pikeOf(g)).toBeGreaterThan(0); // 移動中は常に出ている
+    }
     expect(cmdAction(g, 0, 0)).toBe("このカードには固有アクションがありません"); // 手動の槍撃はない
     a.tx = a.x;
     a.ty = a.y; // 止まる
-    run(g, 0.1);
-    expect(a.thrustT).toBe(0); // 止まったら槍撃は終了する
+    run(g, 0.2);
+    expect(pikeOf(g)).toBe(0);
   });
 
   test("槍撃は乱戦中・攻城中・伏兵中には自動発動しない", () => {
@@ -480,7 +473,7 @@ describe("シミュレーション", () => {
     a.cdAction = 0;
     a.ambush = true;
     tick(g);
-    expect(a.thrustT).toBe(0); // 伏兵中
+    expect(pikeOf(g)).toBe(0); // 伏兵中
     a.ambush = false;
     const e = unitOf(g, 1, 0)!;
     e.mode = "field";
@@ -490,21 +483,19 @@ describe("シミュレーション", () => {
     e.y = e.ty = 690; // 接触(乱戦)
     tick(g);
     expect(a.melee).toBe(true);
-    expect(a.thrustT).toBe(0); // 乱戦中は槍が出ていない
+    expect(pikeOf(g)).toBe(0); // 乱戦中は槍が出ていない
   });
 
-  test("槍が出ているのは槍撃の発動中だけで、それ以外は当たらない・迎撃しない", () => {
+  test("槍は移動中だけ出ていて、止まっていると当たらない・迎撃しない", () => {
     const pike = pick((c) => c.unit === "槍兵" && c.cost === 1 && c.skills.length === 0);
     const g = createGame(mk([pike.id]), mk([ofType("弓兵").id]));
     const a = unitOf(g, 0, 0)!;
     const e = unitOf(g, 1, 0)!;
     a.mode = "field";
     a.x = a.tx = 300;
-    a.y = 500;
-    a.ty = 100; // 上へ移動
+    a.y = a.ty = 500; // 止まっている
     a.fx = 0;
     a.fy = -1;
-    a.cdAction = 5; // 槍撃はクールダウン中
     e.mode = "field";
     e.tx = e.x = 300;
     e.ty = e.y = 500 - 60; // 前方の槍の範囲内(接触はしない距離)
@@ -512,11 +503,11 @@ describe("シミュレーション", () => {
     e.hidden = false;
     e.ambush = false;
     tick(g);
-    expect(snapshotFor(g, 0).units.find((u) => u.p === 0)!.pike).toBe(0); // 槍撃中でなければ槍は出ない
+    expect(pikeOf(g)).toBe(0);
     expect(e.hp).toBe(e.maxHp);
-    a.cdAction = 0;
-    tick(g); // 槍撃が発動
-    expect(snapshotFor(g, 0).units.find((u) => u.p === 0)!.pike).toBeGreaterThan(0);
+    a.ty = 100; // 移動開始
+    tick(g);
+    expect(pikeOf(g)).toBeGreaterThan(0);
     expect(e.hp).toBeLessThan(e.maxHp);
   });
 
@@ -533,7 +524,7 @@ describe("シミュレーション", () => {
     for (let i = 0; i < 60; i++) {
       tick(g);
       if (a.sieging) sawSiege = true;
-      expect(a.thrustT).toBe(0);
+      expect(pikeOf(g)).toBe(0);
     }
     expect(sawSiege).toBe(true);
     expect(snapshotFor(g, 0).units.find((u) => u.p === 0)!.pike).toBe(0);

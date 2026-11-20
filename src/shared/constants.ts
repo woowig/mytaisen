@@ -75,8 +75,6 @@ export const INTERCEPT_SLOW_T = 4;
 export const INTERCEPT_SLOW_F = 0.5;
 export const INTERCEPT_CD = 2;
 export const INTERCEPT_COS = 0.5; // 迎撃の角度条件(槍の向きと相手の進行方向が向かい合う度合い。cos 0.5 は60度)
-export const THRUST_T = 0.5;
-export const THRUST_CD = 3;
 export const THRUST_DMG_BASE = 10;
 export const THRUST_DMG_PER_STRONG = 1;
 

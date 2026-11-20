@@ -86,7 +86,6 @@ export interface Unit {
   cdIntercept: number;
   slowT: number;
   slowF: number;
-  thrustT: number;
   thrustHit: Set<number>;
   lockTarget: number; // unit id or -1
   lockT: number;
@@ -173,7 +172,6 @@ export function createGame(deckA: DeckInfo, deckB: DeckInfo): Game {
         cdIntercept: 0,
         slowT: 0,
         slowF: 1,
-        thrustT: 0,
         thrustHit: new Set(),
         lockTarget: -1,
         lockT: 0,
@@ -232,13 +230,13 @@ function buffSpeed(u: Unit) {
   for (const b of u.buffs) m *= b.speedMul;
   return m;
 }
-// 槍撃を出せる状態か(攻城の判定は後段なので、城壁への到達で判定する)
+// 槍撃は、槍兵が移動している間(乱戦・攻城・伏兵中を除く)、常に発動している。攻城の判定は後段なので、城壁への到達で判定する
 function canThrust(u: Unit) {
   return u.card.unit === "槍兵" && u.mode === "field" && !u.melee && !u.sieging && !atWall(u) && !u.ambush;
 }
-// 槍が出ているのは、槍撃の発動中だけ
+// 槍が出ているのは、槍撃の発動中(=移動中)だけ
 function pikeLen(u: Unit) {
-  if (u.thrustT <= 0 || !canThrust(u)) return 0;
+  if (u.lastSpeed <= 0 || !canThrust(u)) return 0;
   let len = C.PIKE_LEN;
   if (has(u, "槍")) len += C.PIKE_LEN_PER_COST * u.card.cost;
   return len;
@@ -452,7 +450,6 @@ export function tick(g: Game, dt: number = C.DT) {
     u.stratCd = Math.max(0, u.stratCd - dt);
     u.slowT = Math.max(0, u.slowT - dt);
     if (u.slowT === 0) u.slowF = 1;
-    u.thrustT = Math.max(0, u.thrustT - dt);
     u.melee = false;
     u.sieging = false;
     if (u.mode === "dead") {
@@ -527,7 +524,6 @@ function retire(g: Game, u: Unit) {
   u.siege = 0;
   u.buffs = [];
   u.hidden = false;
-  u.thrustT = 0;
   u.lockTarget = -1;
   g.fences = g.fences.filter((f) => f.owner !== u.id);
   const home = slotHome(u.p, u.slot, g.decks[u.p].cards.length);
@@ -670,16 +666,12 @@ function engage(g: Game, a: Unit, b: Unit, dt: number) {
 function updatePikes(g: Game, dt: number) {
   const interceptSpeed = C.BASE_SPEED["騎兵"] * C.CHARGE_TRIGGER_RATIO; // 騎兵の突撃発動速度
   for (const u of g.units) {
-    // 槍撃は移動のアクション: 止まったら終了する
-    if (u.thrustT > 0 && u.lastSpeed <= 0) u.thrustT = 0;
-    // 槍撃: 移動している間、クールダウンが明けるたびに自動で発動する
-    if (canThrust(u) && u.cdAction <= 0 && u.lastSpeed > 0) {
-      u.thrustT = C.THRUST_T;
-      u.thrustHit.clear();
-      u.cdAction = C.THRUST_CD;
-    }
     const len = pikeLen(u);
-    if (len <= 0) continue;
+    if (len <= 0) {
+      u.thrustHit.clear();
+      continue;
+    }
+    const inRange = new Set<number>();
     for (const e of fieldEnemies(g, u.p, false)) {
       // 槍撃の範囲: 移動方向の前方、短い距離と一定の角度
       const dx = e.x - u.x;
@@ -690,7 +682,9 @@ function updatePikes(g: Game, dt: number) {
       // 迎撃: 突撃発動速度以上で、槍と向かい合う方向から接近している
       const facing = e.fx * -u.fx + e.fy * -u.fy >= C.INTERCEPT_COS;
       const fast = e.lastSpeed >= interceptSpeed;
-      if (u.thrustT > 0 && !u.thrustHit.has(e.id)) {
+      inRange.add(e.id);
+      if (!u.thrustHit.has(e.id)) {
+        // 槍の範囲に入ったときに1回、追加のダメージ
         u.thrustHit.add(e.id);
         damage(g, e, C.THRUST_DMG_BASE + strongOf(g, u) * C.THRUST_DMG_PER_STRONG, "action");
         emit(g, { k: "hit", x: e.x, y: e.y, p: u.p });
@@ -718,6 +712,7 @@ function updatePikes(g: Game, dt: number) {
       }
       u.stealthT = C.STEALTH_RECOVER_T;
     }
+    for (const id of u.thrustHit) if (!inRange.has(id)) u.thrustHit.delete(id);
   }
 }
 
