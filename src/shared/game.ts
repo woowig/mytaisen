@@ -286,14 +286,6 @@ function knockback(from: Unit, target: Unit, amount: number) {
   target.y = clamp(target.y + (dy / d) * amount, 0, C.FIELD_H);
 }
 
-function pointSegDist(px: number, py: number, ax: number, ay: number, bx: number, by: number) {
-  const vx = bx - ax;
-  const vy = by - ay;
-  const l2 = vx * vx + vy * vy || 1;
-  const t = clamp(((px - ax) * vx + (py - ay) * vy) / l2, 0, 1);
-  return { d: Math.hypot(px - (ax + vx * t), py - (ay + vy * t)), t };
-}
-
 // ---------- コマンド ----------
 
 export function unitOf(g: Game, p: PlayerIdx, slot: number): Unit | undefined {
@@ -319,7 +311,7 @@ export function cmdAction(g: Game, p: PlayerIdx, slot: number): string | null {
   if (u.mode !== "field") return "出城していません";
   if (u.melee || u.sieging) return "乱戦・攻城中は行えません";
   if (u.ambush) return "伏兵中は行えません";
-  if (u.cdAction > 0) return u.card.unit === "剣豪" ? "斬撃ゲージが溜まっていません" : "クールダウン中です";
+  if (u.cdAction > 0) return u.card.unit === "剣豪" ? "斬撃ゲージが溜まっていません" : u.card.unit === "鉄砲隊" ? "チャージ中です" : "クールダウン中です";
   switch (u.card.unit) {
     case "槍兵":
       u.thrustT = C.THRUST_T;
@@ -345,9 +337,9 @@ export function cmdAction(g: Game, p: PlayerIdx, slot: number): string | null {
       return null;
     }
     case "鉄砲隊": {
-      const target = u.lockTarget >= 0 ? g.units[u.lockTarget] : undefined;
-      const t = target && target.mode === "field" && !target.hidden && dist(u, target) <= C.GUN_RANGE ? target : nearest(u, fieldEnemies(g, p), C.GUN_RANGE);
-      if (!t) return "射程内に対象がいません";
+      // 捕捉している敵(ターゲットライン)に撃つ
+      const t = u.lockTarget >= 0 ? g.units[u.lockTarget] : undefined;
+      if (!t || t.mode !== "field" || t.hidden || t.p === p) return "捕捉している対象がいません";
       shoot(g, u, t);
       return null;
     }
@@ -358,24 +350,17 @@ export function cmdAction(g: Game, p: PlayerIdx, slot: number): string | null {
 
 function shoot(g: Game, u: Unit, t: Unit) {
   const snipe = has(u, "狙") && u.lockTarget === t.id && u.lockT >= C.SNIPE_LOCK_T;
-  const dx = t.x - u.x;
-  const dy = t.y - u.y;
-  const d = Math.hypot(dx, dy) || 1;
-  const ex = u.x + (dx / d) * C.GUN_RANGE;
-  const ey = u.y + (dy / d) * C.GUN_RANGE;
   u.cdAction = C.GUN_CD;
   u.hidden = false;
   u.stealthT = C.STEALTH_RECOVER_T;
-  emit(g, { k: "shot", x: u.x, y: u.y, x2: ex, y2: ey, p: u.p });
+  emit(g, { k: "shot", x: u.x, y: u.y, x2: t.x, y2: t.y, p: u.p });
   const dmg = (C.GUN_DMG_BASE + strongOf(g, u) * C.GUN_DMG_PER_STRONG) * (snipe ? C.SNIPE_MUL : 1);
-  for (const e of fieldEnemies(g, u.p, true)) {
-    const r = pointSegDist(e.x, e.y, u.x, u.y, ex, ey);
-    if (r.d > C.GUN_LINE_WIDTH + C.UNIT_RADIUS * 0.5) continue;
-    damage(g, e, dmg * (e.charging ? C.CHARGED_ARROW_MUL : 1), "action");
-    if (e.sieging) e.siege = Math.max(0, e.siege - C.GUN_BREAK);
-    if (snipe) knockback(u, e, C.SNIPE_KNOCKBACK);
+  damage(g, t, dmg * (t.charging ? C.CHARGED_ARROW_MUL : 1), "action");
+  if (t.sieging) t.siege = Math.max(0, t.siege - C.GUN_BREAK);
+  if (snipe) {
+    knockback(u, t, C.SNIPE_KNOCKBACK);
+    u.lockT = 0;
   }
-  if (snipe) u.lockT = 0;
 }
 
 function stratDuration(time: string, intel: number, short: boolean) {
@@ -761,12 +746,18 @@ function updateRanged(g: Game, dt: number) {
       if (t.sieging) t.siege = Math.max(0, t.siege - C.ARROW_SIEGE_BREAK);
       emit(g, { k: "arrow", x: u.x, y: u.y, x2: t.x, y2: t.y, p: u.p });
     } else if (u.card.unit === "鉄砲隊") {
-      // ロックオン継続
+      // 捕捉: 移動方向を基準に、射程内かつ一定の角度内で最も近い敵。いまの対象が範囲内なら維持する
+      const inView = (e: Unit) => {
+        const dx = e.x - u.x;
+        const dy = e.y - u.y;
+        const d = Math.hypot(dx, dy) || 1;
+        return e.mode === "field" && !e.hidden && d <= C.GUN_RANGE && (d <= C.UNIT_RADIUS || (dx * u.fx + dy * u.fy) / d >= C.GUN_COS);
+      };
       const cur = u.lockTarget >= 0 ? g.units[u.lockTarget] : undefined;
-      if (cur && cur.mode === "field" && !cur.hidden && dist(u, cur) <= C.GUN_RANGE) {
+      if (cur && cur.p !== u.p && inView(cur)) {
         u.lockT += dt;
       } else {
-        const n = nearest(u, fieldEnemies(g, u.p), C.GUN_RANGE);
+        const n = nearest(u, fieldEnemies(g, u.p).filter(inView), C.GUN_RANGE);
         u.lockTarget = n ? n.id : -1;
         u.lockT = 0;
       }
@@ -860,6 +851,7 @@ function updateRegen(g: Game, dt: number) {
 function gaugeOf(u: Unit): number {
   if (u.card.unit === "弓兵") return u.stillT / C.BOW_SWEEP_FILL_T;
   if (u.card.unit === "剣豪") return 1 - u.cdAction / C.SLASH_CD;
+  if (u.card.unit === "鉄砲隊") return 1 - u.cdAction / C.GUN_CD;
   return 0;
 }
 
@@ -901,6 +893,7 @@ export function snapshotFor(g: Game, me: PlayerIdx): Snapshot {
       v.stratCd = round(u.stratCd, 1);
       v.actionCd = round(u.cdAction, 1);
       v.gauge = round(gaugeOf(u), 2);
+      if (u.card.unit === "鉄砲隊" && u.lockTarget >= 0 && u.mode === "field") v.lock = g.units[u.lockTarget]?.slot;
       v.buffed = u.buffs.some((b) => b.dStrong > 0 || b.speedMul > 1);
       v.debuffed = u.buffs.some((b) => b.dStrong < 0 || b.speedMul < 1);
     }

@@ -102,10 +102,10 @@ export const SLASH_SLOW_F = 0.5;
 
 // 鉄砲隊
 export const GUN_RANGE = 300;
+export const GUN_COS = 0.5; // 捕捉できる角度(移動方向からのずれ。cos 0.5 は60度)
 export const GUN_CD = 3;
 export const GUN_DMG_BASE = 10;
 export const GUN_DMG_PER_STRONG = 1.4;
-export const GUN_LINE_WIDTH = 16;
 export const GUN_BREAK = 1.5;
 export const SNIPE_LOCK_T = 2;
 export const SNIPE_MUL = 1.8;

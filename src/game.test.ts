@@ -438,23 +438,80 @@ describe("シミュレーション", () => {
     expect(e.hp).toBe(e.maxHp);
   });
 
-  test("鉄砲隊の射撃は射線上に当たりクールダウンする", () => {
+  const gunSetup = () => {
     const gun = pick((c) => c.unit === "鉄砲隊" && c.cost === 1 && c.skills.length === 0);
-    const g = createGame(mk([gun.id]), mk([ofType("槍兵").id]));
+    const g = createGame(mk([gun.id]), mk([ofType("槍兵").id, ofType("槍兵").id].slice(0, 1)));
     const a = unitOf(g, 0, 0)!;
     const b = unitOf(g, 1, 0)!;
     a.mode = b.mode = "field";
-    a.x = 300;
-    a.y = 600;
-    a.tx = a.x;
-    a.ty = a.y;
-    b.x = 300;
-    b.y = 450;
-    b.tx = b.x;
-    b.ty = b.y;
+    a.x = a.tx = 300;
+    a.y = a.ty = 600;
+    a.fx = 0;
+    a.fy = -1; // 上向き(移動方向)
+    b.hp = b.maxHp;
+    b.hidden = false;
+    b.ambush = false;
+    b.x = b.tx = 300;
+    b.y = b.ty = 450; // 前方150
+    return { g, a, b };
+  };
+
+  test("鉄砲隊は移動方向の最も近い敵を捕捉し、ターゲットラインで示す", () => {
+    const { g, a, b } = gunSetup();
+    tick(g);
+    expect(a.lockTarget).toBe(b.id);
+    expect(snapshotFor(g, 0).units.find((u) => u.p === 0)!.lock).toBe(b.slot);
+    expect(snapshotFor(g, 1).units.find((u) => u.p === 1)!.lock).toBeUndefined(); // 相手には送らない
+    // 真後ろに移動すると、前方の敵は捕捉から外れる
+    a.fy = 1;
+    tick(g);
+    expect(a.lockTarget).toBe(-1);
+  });
+
+  test("鉄砲隊の射撃は捕捉している敵にだけ当たり、チャージが終わるまで撃てない", () => {
+    const { g, a, b } = gunSetup();
+    tick(g);
     expect(cmdAction(g, 0, 0)).toBeNull();
     expect(b.hp).toBeLessThan(b.maxHp);
-    expect(cmdAction(g, 0, 0)).not.toBeNull(); // CD中
+    expect(snapshotFor(g, 0).units.find((u) => u.p === 0)!.gauge).toBe(0); // 撃った直後はチャージが空
+    expect(cmdAction(g, 0, 0)).toBe("チャージ中です");
+    run(g, C.GUN_CD / 2);
+    const half = snapshotFor(g, 0).units.find((u) => u.p === 0)!.gauge!;
+    expect(half).toBeGreaterThan(0.4);
+    expect(half).toBeLessThan(0.6);
+    b.hp = b.maxHp;
+    run(g, C.GUN_CD / 2 + 0.2);
+    expect(cmdAction(g, 0, 0)).toBeNull(); // チャージ完了で再び撃てる
+    expect(b.hp).toBeLessThan(b.maxHp);
+  });
+
+  test("鉄砲隊は捕捉していないと撃てず、射線上の別の敵には当たらない", () => {
+    const gun = pick((c) => c.unit === "鉄砲隊" && c.cost === 1 && c.skills.length === 0);
+    const p1 = pick((c) => c.unit === "槍兵" && c.cost === 1 && c.skills.length === 0);
+    const p2 = pick((c) => c.unit === "槍兵" && c.cost === 1 && c.skills.length === 0 && c.id !== p1.id);
+    const g = createGame(mk([gun.id]), mk([p1.id, p2.id]));
+    const a = unitOf(g, 0, 0)!;
+    const near = unitOf(g, 1, 0)!;
+    const far = unitOf(g, 1, 1)!;
+    a.mode = near.mode = far.mode = "field";
+    a.x = a.tx = 300;
+    a.y = a.ty = 700;
+    a.fx = 0;
+    a.fy = -1;
+    for (const e of [near, far]) {
+      e.hp = e.maxHp;
+      e.hidden = false;
+      e.ambush = false;
+      e.x = e.tx = 300;
+    }
+    near.y = near.ty = 560; // 近い敵
+    far.y = far.ty = 450; // 射線上のさらに奥(射程内)
+    expect(cmdAction(g, 0, 0)).toBe("捕捉している対象がいません");
+    tick(g);
+    expect(a.lockTarget).toBe(near.id);
+    expect(cmdAction(g, 0, 0)).toBeNull();
+    expect(near.hp).toBeLessThan(near.maxHp);
+    expect(far.hp).toBe(far.maxHp);
   });
 
   test("相手には見えない情報が漏れない", () => {

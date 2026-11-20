@@ -13,7 +13,7 @@ const CARD_MIN_Y = C.CASTLE_ZONE_H + CARD_H / 2;
 // カード上端が壁にほぼ接していれば壁への攻撃指示にする(余裕分)
 const WALL_SNAP = 14;
 // 兵種ごとのゲージ名(スナップショットの gauge を表示する)
-const GAUGE_LABEL: Record<string, string> = { 弓兵: "掃射", 剣豪: "斬撃" };
+const GAUGE_LABEL: Record<string, string> = { 弓兵: "掃射", 剣豪: "斬撃", 鉄砲隊: "チャージ" };
 const ME_COLOR = "#4aa3ff";
 const EN_COLOR = "#ff5a5a";
 
@@ -40,6 +40,7 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
   const fxLive = useRef<FxLive[]>([]);
   // カードを振る操作(剣豪の斬撃)の検出
   const swing = useRef(new ShakeDetector(SWING));
+  const gunShake = useRef(new ShakeDetector(SWING, "vertical")); // 鉄砲隊: カードを前後に揺らす
   const drag = useRef<{ slot: number; dx: number; dy: number; x: number; y: number; lastSent: number } | null>(null);
   const selRef = useRef(selected);
   selRef.current = selected;
@@ -269,6 +270,26 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
       ctx.fillStyle = "#6b4a2b";
       ctx.fillRect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.max(6, Math.abs(y2 - y1)));
     }
+    // 鉄砲隊のターゲットライン(捕捉している敵へ)
+    for (const u of s.units) {
+      if (u.p !== you || u.lock === undefined) continue;
+      const me = disp.current.get(`${u.p}:${u.slot}`);
+      const en = disp.current.get(`${you === 0 ? 1 : 0}:${u.lock}`);
+      if (!me || !en) continue;
+      const [x1, y1] = toView(me.x, me.y);
+      const [x2, y2] = toView(en.x, en.y);
+      ctx.strokeStyle = "rgba(255,80,80,0.85)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 5]);
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.arc(x2, y2, C.UNIT_RADIUS + 5, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     // 部隊(奥から)
     const list = [...s.units].filter((u) => !(u.p !== you && u.mode === "dead")).sort((a, b) => (disp.current.get(`${a.p}:${a.slot}`)?.y ?? 0) - (disp.current.get(`${b.p}:${b.slot}`)?.y ?? 0));
     const ordered = flipOrder(list);
@@ -463,6 +484,7 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
       selRef.current = hit.slot;
       drag.current = { slot: hit.slot, dx: px - cx, dy: py - cy, x: cx, y: cy, lastSent: 0 };
       swing.current.reset();
+      gunShake.current.reset();
     } else if (selRef.current >= 0) {
       // 空きをクリックで選択中カードを移動指示
       sendMove(selRef.current, px, py);
@@ -477,7 +499,9 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
     const now = performance.now();
     // 剣豪はカードを振ると斬撃(ゲージが満タンのときだけサーバーが受け付ける)
     const du = snapRef.current?.units.find((u) => u.p === you && u.slot === d.slot);
-    if (du && CARD_BY_ID.get(du.cardId)?.unit === "剣豪" && swing.current.push(now, px, py)) send({ type: "action", slot: d.slot });
+    const unit = du && CARD_BY_ID.get(du.cardId)?.unit;
+    if (unit === "剣豪" && swing.current.push(now, px, py)) send({ type: "action", slot: d.slot });
+    if (unit === "鉄砲隊" && gunShake.current.push(now, px, py)) send({ type: "action", slot: d.slot });
     if (now - d.lastSent > 50) {
       d.lastSent = now;
       sendMove(d.slot, d.x, d.y);
@@ -590,7 +614,7 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
               {selCard?.unit === "槍兵" ? "槍撃" : selCard?.unit === "剣豪" ? "斬撃" : selCard?.unit === "鉄砲隊" ? "射撃" : "アクション"} [Space]
               {sel && (sel.actionCd ?? 0) > 0 ? ` ${sel.actionCd}s` : ""}
             </button>
-            <div className="muted small">騎兵は走り続けると突撃、弓兵は止まると掃射ゲージが貯まり、満タンで動き出すと掃射します。剣豪は斬撃ゲージが満タンのときにカードを振る(短く素早く往復)と斬撃します。</div>
+            <div className="muted small">騎兵は走り続けると突撃、弓兵は止まると掃射ゲージが貯まり、満タンで動き出すと掃射します。剣豪は斬撃ゲージが満タンのときにカードを振る(短く素早く往復)と斬撃、鉄砲隊はターゲットラインが出ている間にカードを前後に揺らすと射撃します。</div>
           </div>
         </aside>
       </div>
