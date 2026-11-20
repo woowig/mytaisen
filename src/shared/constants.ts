@@ -35,13 +35,6 @@ export const BASE_SPEED: Record<UnitType, number> = {
   鉄砲隊: 38,
   剣豪: 45,
 };
-export const SIEGE_BONUS: Record<UnitType, number> = {
-  槍兵: 0.5,
-  剣豪: 0.35,
-  騎兵: 0,
-  弓兵: -0.2,
-  鉄砲隊: -0.2,
-};
 
 export const CASTLE_HP = 100;
 export const CASTLE_HEAL_RATE = 0.08; // 城内の回復(最大兵力比/s)
@@ -110,12 +103,32 @@ export const SNIPE_MUL = 1.8;
 export const SNIPE_KNOCKBACK = 30;
 
 // 攻城
-export const SIEGE_NEED_MAX = 6.5;
-export const SIEGE_NEED_PER_INTEL = 0.35;
-export const SIEGE_NEED_MIN = 1.6;
-export const SIEGE_COST_K = 0.45;
-export const SIEGE_STRONG_K = 0.16;
-export const SIEGE_GATE_MUL = 3; // 城門攻撃のダメージ倍率(城壁は1倍)
+/** 攻城速度(秒): 知力0以下・1〜19・20以上の順。整数でない知力は前後から直線補間する */
+export const SIEGE_TIME_BY_INTEL: readonly number[] = [
+  5.67, 5.53, 5.42, 5.28, 5.15, 5.01, 4.87, 4.73, 4.6, 4.46, 4.33, 4.19, 4.05, 3.92, 3.78, 3.64, 3.51, 3.37, 3.23, 3.09, 3.0,
+];
+/** 兵種基礎値(攻城ダメージ) */
+export const SIEGE_UNIT_BASE: Record<UnitType, number> = {
+  騎兵: 0.56,
+  弓兵: 1.3,
+  鉄砲隊: 1.3,
+  剣豪: 1.5,
+  槍兵: 2,
+};
+export const SIEGE_STRONG_K = 0.02; // 武力1あたりの値
+/** コスト → コスト係数(表にないコストは前後から直線補間する) */
+export const SIEGE_COST_COEF: readonly (readonly [number, number])[] = [
+  [1, 1],
+  [1.5, 2.5],
+  [2, 3.75],
+  [2.5, 4.7],
+  [3, 5.65],
+  [3.5, 6.55],
+  [4, 7.5],
+];
+export const SIEGE_GATE_MUL = 1.65; // 城門攻撃のダメージ倍率(城壁は1倍)
+export const SIEGE_MARK_YELLOW = 6; // 次の攻城ダメージがこの値以上なら攻城ゲージの枠が黄色
+export const SIEGE_MARK_EFFECT = 13; // この値以上なら黄色の枠 + エフェクト
 export const SIEGE_REACH = UNIT_RADIUS + 6; // 城壁からこの距離以内で攻城できる
 
 // 特技

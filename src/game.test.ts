@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { CARDS } from "./shared/cards.ts";
 import * as C from "./shared/constants.ts";
-import { cmdAction, cmdMove, cmdStrat, createGame, snapshotFor, tick, unitOf, validateDeck, type Game } from "./shared/game.ts";
+import { cmdAction, cmdMove, cmdStrat, createGame, nextSiegeDamage, siegeBaseDamage, siegeCostCoef, siegeNeedSec, snapshotFor, tick, unitOf, validateDeck, type Game } from "./shared/game.ts";
 import type { Card, UnitType } from "./shared/types.ts";
 
 const pick = (pred: (c: Card) => boolean, skip = 0) => CARDS.filter(pred)[skip]!;
@@ -51,6 +51,84 @@ describe("validateDeck", () => {
     expect(m([a, b])).toBe(10);
     expect(m([a, b, d])).toBe(8);
     expect(m([a, b, d, e])).toBe(6);
+  });
+});
+
+describe("攻城", () => {
+  test("攻城ダメージの計算例(小数第3位切り捨て)", () => {
+    expect(siegeBaseDamage("槍兵", 2, 7)).toBe(8.02);
+    expect(siegeBaseDamage("騎兵", 1, 5)).toBe(0.66);
+    expect(siegeBaseDamage("弓兵", 3, 8)).toBe(8.24);
+  });
+  test("城門の担当は城壁の1.65倍(13.23)で、相手には目安が送られない", () => {
+    const card = pick((c) => c.unit === "槍兵" && c.cost === 2 && c.skills.length === 0);
+    const g = createGame(mk([card.id]), mk([ofType("弓兵").id]));
+    const u = g.units[0]!;
+    u.card = { ...u.card, strong: 7 };
+    u.mode = "field";
+    u.x = C.FIELD_W / 2;
+    u.y = C.FIELD_H / 2;
+    u.sieging = true;
+    g.gate[1] = -1;
+    expect(nextSiegeDamage(g, u)).toBe(8.02);
+    g.gate[1] = u.id;
+    expect(nextSiegeDamage(g, u)).toBe(13.23);
+    const mine = snapshotFor(g, 0).units.find((v) => v.p === 0 && v.slot === 0)!;
+    const theirs = snapshotFor(g, 1).units.find((v) => v.p === 0 && v.slot === 0)!;
+    expect(mine.siegeDmg).toBe(13.23);
+    expect(theirs.siegeDmg).toBeUndefined();
+  });
+  test("兵種の順は 槍兵 > 剣豪 > 弓兵 = 鉄砲隊 > 騎兵", () => {
+    for (const cost of [1, 2, 3, 4]) {
+      const d = (u: UnitType) => siegeBaseDamage(u, cost, 7);
+      expect(d("槍兵")).toBeGreaterThan(d("剣豪"));
+      expect(d("剣豪")).toBeGreaterThan(d("弓兵"));
+      expect(d("弓兵")).toBe(d("鉄砲隊"));
+      expect(d("弓兵")).toBeGreaterThan(d("騎兵"));
+    }
+  });
+  test("コスト係数は表のとおりで、表にないコストは補間される", () => {
+    const tbl: [number, number][] = [[1, 1], [1.5, 2.5], [2, 3.75], [2.5, 4.7], [3, 5.65], [3.5, 6.55], [4, 7.5]];
+    for (const [c, k] of tbl) expect(siegeCostCoef(c)).toBeCloseTo(k, 10);
+    expect(siegeCostCoef(1.25)).toBeCloseTo(1.75, 10);
+  });
+  test("城門倍率は1.65倍", () => {
+    expect(C.SIEGE_GATE_MUL).toBe(1.65);
+  });
+  test("攻城速度は知力の表で決まり、20以上は3.0秒", () => {
+    expect(siegeNeedSec(1)).toBe(5.53);
+    expect(siegeNeedSec(10)).toBe(4.33);
+    expect(siegeNeedSec(19)).toBe(3.09);
+    expect(siegeNeedSec(20)).toBe(3.0);
+    expect(siegeNeedSec(25)).toBe(3.0);
+    expect(siegeNeedSec(0)).toBe(5.67);
+    expect(siegeNeedSec(1.5)).toBeCloseTo((5.53 + 5.42) / 2, 10);
+  });
+  test("計略で武力が上がっていると、上がった武力で計算される", () => {
+    const card = pick((c) => c.unit === "槍兵" && c.cost === 2 && c.skills.length === 0);
+    const g = createGame(mk([card.id]), mk([ofType("弓兵").id]));
+    cmdMove(g, 0, 0, 100, 10);
+    for (let i = 0; i < 20 * 60 && !g.units[0]!.sieging; i++) tick(g);
+    const u = g.units[0]!;
+    expect(u.sieging).toBe(true);
+    const before = snapshotFor(g, 0).units.find((v) => v.p === 0 && v.slot === 0)!.siegeDmg!;
+    u.buffs.push({ dStrong: 3, speedMul: 1, until: g.t + 100 });
+    const after = snapshotFor(g, 0).units.find((v) => v.p === 0 && v.slot === 0)!.siegeDmg!;
+    expect(before).toBe(siegeBaseDamage("槍兵", 2, card.strong));
+    expect(after).toBe(siegeBaseDamage("槍兵", 2, card.strong + 3));
+    expect(after).toBeGreaterThan(before);
+  });
+  test("実際の攻城で、城壁と城門のダメージが式どおり入る", () => {
+    const card = pick((c) => c.unit === "槍兵" && c.cost === 2 && c.skills.length === 0);
+    const g = createGame(mk([card.id]), mk([ofType("弓兵").id]));
+    cmdMove(g, 0, 0, C.FIELD_W / 2, 10);
+    let first = 0;
+    for (let i = 0; i < 20 * 60 && g.castle[1] === C.CASTLE_HP; i++) tick(g);
+    first = C.CASTLE_HP - g.castle[1];
+    const u = g.units[0]!;
+    const expectedBase = siegeBaseDamage("槍兵", 2, card.strong);
+    const gate = g.gate[1] === u.id;
+    expect(first).toBeCloseTo(gate ? Math.floor(expectedBase * C.SIEGE_GATE_MUL * 100 + 1e-6) / 100 : expectedBase, 5);
   });
 });
 
