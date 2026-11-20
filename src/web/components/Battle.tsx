@@ -443,8 +443,8 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
   function drawPikes(ctx: CanvasRenderingContext2D, u: UnitView, x: number, y: number, fx: number, fy: number, r: number, now: number) {
     const edge = Math.acos(C.PIKE_COS) * 0.85;
     const angles = [-edge, -edge / 3, edge / 3, edge];
-    // 移動中と槍撃の発動中は、4本が少しずつ位相をずらして突き出す(長さの基準は変えない)
-    const moving = u.thrust || (speed.current.get(`${u.p}:${u.slot}`) ?? 0) > PIKE_MOVE_SPEED;
+    // 移動中(槍撃アクション中は除く)は、4本が少しずつ位相をずらして伸び縮みする
+    const moving = !u.thrust && (speed.current.get(`${u.p}:${u.slot}`) ?? 0) > PIKE_MOVE_SPEED;
     for (let i = 0; i < 4; i++) {
       const phase = (now / PIKE_STAB_MS + i * 0.23) % 1;
       const len = u.pike * (moving ? 1 + 0.1 * Math.sin(phase * Math.PI * 2) : 1);

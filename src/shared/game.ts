@@ -237,6 +237,7 @@ function pikeLen(u: Unit) {
   if (u.mode !== "field" || u.melee || u.sieging || atWall(u)) return 0; // 攻城の判定は後段なので、城壁への到達で判定する
   let len = C.PIKE_LEN;
   if (has(u, "槍")) len += C.PIKE_LEN_PER_COST * u.card.cost;
+  if (u.thrustT > 0) len *= C.THRUST_LEN_MUL;
   return len;
 }
 const enemyOf = (p: PlayerIdx): PlayerIdx => (p === 0 ? 1 : 0);
