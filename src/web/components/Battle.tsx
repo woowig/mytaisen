@@ -13,7 +13,7 @@ const CARD_MIN_Y = C.CASTLE_ZONE_H + CARD_H / 2;
 // カード上端が壁にほぼ接していれば壁への攻撃指示にする(余裕分)
 const WALL_SNAP = 14;
 const DBLCLICK_MS = 300; // ダブルクリックとみなす間隔
-const PIKE_MOVE_SPEED = 12; // これより速く動いている槍兵は「移動中」(表示px/s)
+const PIKE_MOVE_SPEED = 12; // これより速く動いている槍兵は「移動中」(盤面座標のpx/s)
 const PIKE_STAB_MS = 350; // 移動中の槍の突き出し周期
 const TAP_SLOP = 8; // この距離以内ならカードを動かしていないクリックとみなす(画面のCSS px)
 // 兵種ごとのゲージ名(スナップショットの gauge を表示する)
