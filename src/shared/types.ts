@@ -51,6 +51,7 @@ export interface UnitView {
   hidden: boolean;
   charging: boolean;
   pike: number; // 槍の長さ(0なら槍なし)
+  thrust: boolean; // 槍撃アクション中(表示用)
   melee: boolean;
   sieging: boolean;
   siegeRatio: number;
