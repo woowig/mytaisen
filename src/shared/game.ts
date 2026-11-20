@@ -695,19 +695,20 @@ function engage(g: Game, a: Unit, b: Unit, dt: number) {
 }
 
 function updatePikes(g: Game, dt: number) {
+  const interceptSpeed = C.BASE_SPEED["騎兵"] * C.CHARGE_TRIGGER_RATIO; // 騎兵の突撃発動速度
   for (const u of g.units) {
     const len = pikeLen(u);
     if (len <= 0) continue;
-    const ax = u.x;
-    const ay = u.y;
-    const bx = u.x + u.fx * len;
-    const by = u.y + u.fy * len;
     for (const e of fieldEnemies(g, u.p, false)) {
-      const r = pointSegDist(e.x, e.y, ax, ay, bx, by);
-      if (r.d > C.PIKE_WIDTH + C.UNIT_RADIUS * 0.4) continue;
-      // 正面からの接触か (相手の進行方向が自分へ向いている)
-      const facing = e.fx * -u.fx + e.fy * -u.fy > 0.2;
-      const fast = e.charging || e.lastSpeed > C.BASE_SPEED[e.card.unit] * 0.9;
+      // 槍撃の範囲: 移動方向の前方、短い距離と一定の角度
+      const dx = e.x - u.x;
+      const dy = e.y - u.y;
+      const d = Math.hypot(dx, dy);
+      if (d > len + C.UNIT_RADIUS) continue;
+      if (d > C.UNIT_RADIUS && (dx * u.fx + dy * u.fy) / d < C.PIKE_COS) continue;
+      // 迎撃: 突撃発動速度以上で、槍と向かい合う方向から接近している
+      const facing = e.fx * -u.fx + e.fy * -u.fy >= C.INTERCEPT_COS;
+      const fast = e.lastSpeed >= interceptSpeed;
       if (u.thrustT > 0 && !u.thrustHit.has(e.id)) {
         u.thrustHit.add(e.id);
         damage(g, e, C.THRUST_DMG_BASE + strongOf(g, u) * C.THRUST_DMG_PER_STRONG, "action");
@@ -723,9 +724,15 @@ function updatePikes(g: Game, dt: number) {
         emit(g, { k: "intercept", x: e.x, y: e.y, p: u.p });
       } else {
         damage(g, e, strongOf(g, u) * C.PIKE_DPS_K * dt, "action");
-        if (e.slowT <= 0.2) {
-          e.slowT = 0.3;
-          e.slowF = 0.85;
+      }
+      // 騎兵に命中すると、槍兵と同等の速度まで落ちる
+      if (e.card.unit === "騎兵") {
+        const f = C.BASE_SPEED[u.card.unit] / C.BASE_SPEED["騎兵"];
+        e.charging = false;
+        e.vel = Math.min(e.vel, C.BASE_SPEED[u.card.unit]);
+        if (e.slowT <= C.PIKE_SLOW_T) {
+          e.slowT = C.PIKE_SLOW_T;
+          e.slowF = Math.min(e.slowF, f);
         }
       }
       u.stealthT = C.STEALTH_RECOVER_T;

@@ -66,13 +66,15 @@ export const CHARGED_ARROW_MUL = 0.5;
 // 槍兵
 export const PIKE_LEN = 70;
 export const PIKE_LEN_PER_COST = 8; // 特技「槍術」
-export const PIKE_WIDTH = 16;
+export const PIKE_COS = 0.8; // 槍撃の有効角度(移動方向からのずれ。cos 0.8 は約37度)
+export const PIKE_SLOW_T = 1.5; // 槍撃が騎兵に当たったときの減速時間
 export const PIKE_DPS_K = 0.5;
 export const INTERCEPT_DMG_BASE = 30;
 export const INTERCEPT_DMG_PER_STRONG = 1.5;
 export const INTERCEPT_SLOW_T = 4;
 export const INTERCEPT_SLOW_F = 0.5;
 export const INTERCEPT_CD = 2;
+export const INTERCEPT_COS = 0.5; // 迎撃の角度条件(槍の向きと相手の進行方向が向かい合う度合い。cos 0.5 は60度)
 export const THRUST_T = 0.5;
 export const THRUST_CD = 3;
 export const THRUST_LEN_MUL = 1.8;
