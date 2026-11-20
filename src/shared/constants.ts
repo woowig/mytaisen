@@ -21,7 +21,8 @@ export const MAX_MORALE_BY_COLORS = [12, 12, 10, 8, 6] as const; // index=色数
 export const MAX_MORALE_CAP = 15; // 特技「同盟」で増えても超えない
 
 export const MORALE_START = 5;
-export const MORALE_REGEN = 0.3; // /s
+export const MORALE_COUNTS_PER_POINT = 4.2; // 士気1が溜まるまでのカウント数
+export const MORALE_REGEN = 1 / (MORALE_COUNTS_PER_POINT * COUNT_SEC); // /s
 
 export const HP_BASE = 100;
 export const UNIT_RADIUS = 22;
