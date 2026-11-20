@@ -778,6 +778,45 @@ function atWall(u: Unit) {
   return u.p === 0 ? u.y - C.CASTLE_ZONE_H <= C.SIEGE_REACH : C.FIELD_H - C.CASTLE_ZONE_H - u.y <= C.SIEGE_REACH;
 }
 
+/** 小数第3位を切り捨てて小数第2位までにする(浮動小数点の誤差で桁が落ちないよう微小値を足す) */
+const floor2 = (v: number) => Math.floor(v * 100 + 1e-6) / 100;
+
+/** 攻城ゲージが満タンになるまでの秒数(知力ごとの表。整数でない知力は直線補間) */
+export function siegeNeedSec(intel: number): number {
+  const t = C.SIEGE_TIME_BY_INTEL;
+  const last = t.length - 1;
+  if (intel <= 0) return t[0]!;
+  if (intel >= last) return t[last]!;
+  const i = Math.floor(intel);
+  return t[i]! + (t[i + 1]! - t[i]!) * (intel - i);
+}
+
+/** コスト係数(表にないコストは前後から直線補間) */
+export function siegeCostCoef(cost: number): number {
+  const tbl = C.SIEGE_COST_COEF;
+  if (cost <= tbl[0]![0]) return tbl[0]![1];
+  for (let i = 1; i < tbl.length; i++) {
+    const [c1, k1] = tbl[i]!;
+    if (cost <= c1) {
+      const [c0, k0] = tbl[i - 1]!;
+      return k0 + ((k1 - k0) * (cost - c0)) / (c1 - c0);
+    }
+  }
+  return tbl[tbl.length - 1]![1];
+}
+
+/** 攻城ダメージ(基本) = (兵種基礎値 + 0.02×武力) × コスト係数 */
+export function siegeBaseDamage(unit: UnitType, cost: number, strong: number): number {
+  return floor2((C.SIEGE_UNIT_BASE[unit] + C.SIEGE_STRONG_K * strong) * siegeCostCoef(cost));
+}
+
+/** その部隊が次に攻城を入れたときのダメージ(城門倍率込み) */
+function nextSiegeDamage(g: Game, u: Unit): number {
+  const base = siegeBaseDamage(u.card.unit as UnitType, u.card.cost, strongOf(g, u));
+  const gate = g.gate[enemyOf(u.p)] === u.id ? C.SIEGE_GATE_MUL : 1;
+  return floor2(base * gate);
+}
+
 function updateSiege(g: Game, dt: number) {
   const cand = (u: Unit) => u.mode === "field" && !u.melee && atWall(u);
   // 城門担当(守る側ごとに1部隊)。続投できなければ中央に近い部隊へ交代
@@ -801,14 +840,13 @@ function updateSiege(g: Game, dt: number) {
     u.charging = false;
     u.vel = 0;
     u.siege += dt;
-    const need = clamp(C.SIEGE_NEED_MAX - intelOf(g, u) * C.SIEGE_NEED_PER_INTEL, C.SIEGE_NEED_MIN, C.SIEGE_NEED_MAX);
+    const need = siegeNeedSec(intelOf(g, u));
     if (u.siege >= need) {
       u.siege = 0;
       const e = enemyOf(u.p);
-      const gate = g.gate[e] === u.id ? C.SIEGE_GATE_MUL : 1;
-      const dmg = Math.max(0.3, u.card.cost * C.SIEGE_COST_K + strongOf(g, u) * C.SIEGE_STRONG_K + C.SIEGE_BONUS[u.card.unit as UnitType]) * gate;
+      const dmg = nextSiegeDamage(g, u);
       g.castle[e] = Math.max(0, g.castle[e] - dmg);
-      emit(g, { k: "castle", x: u.x, y: u.y, p: u.p });
+      emit(g, { k: "castle", x: u.x, y: u.y, p: u.p, big: dmg >= C.SIEGE_MARK_EFFECT });
     }
   }
 }
@@ -882,14 +920,14 @@ export function snapshotFor(g: Game, me: PlayerIdx): Snapshot {
       siegeRatio: 0,
     };
     if (u.sieging) {
-      const need = clamp(C.SIEGE_NEED_MAX - intelOf(g, u) * C.SIEGE_NEED_PER_INTEL, C.SIEGE_NEED_MIN, C.SIEGE_NEED_MAX);
-      v.siegeRatio = round(Math.min(1, u.siege / need), 2);
+      v.siegeRatio = round(Math.min(1, u.siege / siegeNeedSec(intelOf(g, u))), 2);
     }
     if (mine) {
       v.tx = round(u.tx);
       v.ty = round(u.ty);
       v.respawn = round(Math.max(0, u.respawn), 1);
       v.stratUsed = u.stratUsed;
+      if (u.sieging) v.siegeDmg = nextSiegeDamage(g, u);
       v.stratCd = round(u.stratCd, 1);
       v.actionCd = round(u.cdAction, 1);
       v.gauge = round(gaugeOf(u), 2);

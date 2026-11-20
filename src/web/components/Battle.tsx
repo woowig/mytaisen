@@ -497,11 +497,21 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
     if (u.charging) drawChargeAura(ctx, x, y, fx, fy, r, now);
     if (u.pike > 0) drawPikes(ctx, u, x, y, fx, fy, r, now);
     if (u.sieging) {
-      ctx.strokeStyle = "#ffe36b";
-      ctx.lineWidth = 4;
+      // 次の攻城ダメージの目安(自軍のみ): 白 / 黄 / 黄+エフェクト
+      const dmg = u.siegeDmg ?? 0;
+      const yellow = dmg >= C.SIEGE_MARK_YELLOW;
+      const strong = dmg >= C.SIEGE_MARK_EFFECT;
+      ctx.save();
+      if (strong) {
+        ctx.shadowColor = "#ffe36b";
+        ctx.shadowBlur = 8 + 6 * Math.abs(Math.sin(now / 160));
+      }
+      ctx.strokeStyle = mine && yellow ? "#ffe36b" : "#fff";
+      ctx.lineWidth = mine && strong ? 5 : 4;
       ctx.beginPath();
       ctx.arc(x, y, r + 6, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * u.siegeRatio);
       ctx.stroke();
+      ctx.restore();
     }
     ctx.fillStyle = COLOR_HEX[card.color] ?? "#666";
     ctx.beginPath();
@@ -589,9 +599,9 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
         ctx.fill();
         break;
       case "castle":
-        ctx.fillStyle = "#fff";
+        ctx.fillStyle = f.big ? "#ffe36b" : "#fff";
         ctx.beginPath();
-        ctx.arc(x, y, 20 + t * 40, 0, Math.PI * 2);
+        ctx.arc(x, y, (f.big ? 32 : 20) + t * (f.big ? 80 : 40), 0, Math.PI * 2);
         ctx.fill();
         break;
       case "reveal":

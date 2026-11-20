@@ -32,6 +32,8 @@ export interface Fx {
   x2?: number;
   y2?: number;
   p?: PlayerIdx;
+  /** 大きな演出(強い攻城など) */
+  big?: boolean;
 }
 
 export type UnitMode = "castle" | "field" | "dead";
@@ -59,6 +61,8 @@ export interface UnitView {
   ty?: number;
   respawn?: number;
   stratUsed?: boolean;
+  /** 次の攻城で入るダメージ(城門倍率・計略を含む) */
+  siegeDmg?: number;
   stratCd?: number;
   actionCd?: number;
   /** 兵種ゲージ(0〜1)。弓兵=走射、剣豪=斬撃、鉄砲隊=チャージ */
