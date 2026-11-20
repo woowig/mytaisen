@@ -191,13 +191,14 @@ describe("シミュレーション", () => {
     b.x = 300;
     b.y = 300;
     b.tx = 300;
-    b.ty = 300;
+    b.ty = 900; // 騎兵に向かってゆっくり進みながら槍を出す
     b.fx = 0;
     b.fy = 1; // 下(P0側)向きに槍
     b.hp = b.maxHp;
     let charged = false;
     let intercepted = false;
     for (let i = 0; i < 20 * 40; i++) {
+      b.thrustT = 1; // 槍撃中(槍が出ている)
       tick(g);
       if (a.charging) charged = true;
       if (g.fx.some((f) => f.k === "intercept")) intercepted = true;
@@ -255,7 +256,7 @@ describe("シミュレーション", () => {
     a.x = 300;
     a.y = 500;
     a.tx = a.x;
-    a.ty = a.y;
+    a.ty = a.y - 200; // 上へ進みながら槍を出す
     a.fx = 0;
     a.fy = -1; // 上向きに槍
     e.mode = "field";
@@ -264,10 +265,12 @@ describe("シミュレーション", () => {
     e.hp = e.maxHp;
     e.hidden = false;
     e.ambush = false;
+    a.thrustT = 1;
     tick(g);
     expect(e.hp).toBe(e.maxHp); // 横は当たらない
     e.tx = e.x = 300;
     e.ty = e.y = 500 - 50; // 前方
+    a.thrustT = 1;
     tick(g);
     expect(e.hp).toBeLessThan(e.maxHp);
   });
@@ -310,7 +313,7 @@ describe("シミュレーション", () => {
     a.x = 300;
     a.y = 500;
     a.tx = a.x;
-    a.ty = a.y;
+    a.ty = a.y - 200; // 上へ進みながら槍を出す
     a.fx = 0;
     a.fy = -1;
     e.mode = "field";
@@ -322,6 +325,7 @@ describe("シミュレーション", () => {
     e.ambush = false;
     let intercepted = false;
     for (let i = 0; i < 20 * 15 && !intercepted; i++) {
+      a.thrustT = 1; // 槍撃中(槍が出ている)
       tick(g);
       if (g.fx.some((f) => f.k === "intercept")) intercepted = true;
     }
@@ -487,6 +491,33 @@ describe("シミュレーション", () => {
     tick(g);
     expect(a.melee).toBe(true);
     expect(a.thrustT).toBe(0); // 乱戦中は槍が出ていない
+  });
+
+  test("槍が出ているのは槍撃の発動中だけで、それ以外は当たらない・迎撃しない", () => {
+    const pike = pick((c) => c.unit === "槍兵" && c.cost === 1 && c.skills.length === 0);
+    const g = createGame(mk([pike.id]), mk([ofType("弓兵").id]));
+    const a = unitOf(g, 0, 0)!;
+    const e = unitOf(g, 1, 0)!;
+    a.mode = "field";
+    a.x = a.tx = 300;
+    a.y = 500;
+    a.ty = 100; // 上へ移動
+    a.fx = 0;
+    a.fy = -1;
+    a.cdAction = 5; // 槍撃はクールダウン中
+    e.mode = "field";
+    e.tx = e.x = 300;
+    e.ty = e.y = 500 - 60; // 前方の槍の範囲内(接触はしない距離)
+    e.hp = e.maxHp;
+    e.hidden = false;
+    e.ambush = false;
+    tick(g);
+    expect(snapshotFor(g, 0).units.find((u) => u.p === 0)!.pike).toBe(0); // 槍撃中でなければ槍は出ない
+    expect(e.hp).toBe(e.maxHp);
+    a.cdAction = 0;
+    tick(g); // 槍撃が発動
+    expect(snapshotFor(g, 0).units.find((u) => u.p === 0)!.pike).toBeGreaterThan(0);
+    expect(e.hp).toBeLessThan(e.maxHp);
   });
 
   test("槍撃は攻城中(城壁に到達)には自動発動せず、槍も出ない", () => {

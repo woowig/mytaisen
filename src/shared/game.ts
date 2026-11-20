@@ -232,9 +232,13 @@ function buffSpeed(u: Unit) {
   for (const b of u.buffs) m *= b.speedMul;
   return m;
 }
+// 槍撃を出せる状態か(攻城の判定は後段なので、城壁への到達で判定する)
+function canThrust(u: Unit) {
+  return u.card.unit === "槍兵" && u.mode === "field" && !u.melee && !u.sieging && !atWall(u) && !u.ambush;
+}
+// 槍が出ているのは、槍撃の発動中だけ
 function pikeLen(u: Unit) {
-  if (u.card.unit !== "槍兵") return 0;
-  if (u.mode !== "field" || u.melee || u.sieging || atWall(u)) return 0; // 攻城の判定は後段なので、城壁への到達で判定する
+  if (u.thrustT <= 0 || !canThrust(u)) return 0;
   let len = C.PIKE_LEN;
   if (has(u, "槍")) len += C.PIKE_LEN_PER_COST * u.card.cost;
   return len;
@@ -669,7 +673,7 @@ function updatePikes(g: Game, dt: number) {
     // 槍撃は移動のアクション: 止まったら終了する
     if (u.thrustT > 0 && u.lastSpeed <= 0) u.thrustT = 0;
     // 槍撃: 移動している間、クールダウンが明けるたびに自動で発動する
-    if (u.card.unit === "槍兵" && pikeLen(u) > 0 && !u.ambush && u.cdAction <= 0 && u.lastSpeed > 0) {
+    if (canThrust(u) && u.cdAction <= 0 && u.lastSpeed > 0) {
       u.thrustT = C.THRUST_T;
       u.thrustHit.clear();
       u.cdAction = C.THRUST_CD;
@@ -878,7 +882,6 @@ export function snapshotFor(g: Game, me: PlayerIdx): Snapshot {
       hidden: u.hidden,
       charging: u.charging,
       pike: round(pikeLen(u)),
-      thrust: u.thrustT > 0,
       melee: u.melee,
       sieging: u.sieging,
       siegeRatio: 0,

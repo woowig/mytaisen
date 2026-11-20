@@ -13,7 +13,6 @@ const CARD_MIN_Y = C.CASTLE_ZONE_H + CARD_H / 2;
 // カード上端が壁にほぼ接していれば壁への攻撃指示にする(余裕分)
 const WALL_SNAP = 14;
 const DBLCLICK_MS = 300; // ダブルクリックとみなす間隔
-const PIKE_MOVE_SPEED = 12; // これより速く動いている槍兵は「移動中」(盤面座標のpx/s)
 const PIKE_STAB_MS = 350; // 移動中の槍の突き出し周期
 const DUST_MIN_SPEED = 20; // 砂煙を出す最低速度(盤面座標のpx/s)
 const DUST_STEP = 14; // この距離を走るごとに砂煙を出す
@@ -46,8 +45,6 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
   const disp = useRef(new Map<string, { x: number; y: number }>());
   // 表示位置から求めた部隊ごとの移動速度(px/s、なめらかにしたもの)。槍の移動中エフェクトの判定に使う
   const speed = useRef(new Map<string, number>());
-  // 槍の矢印の濃さ(0〜1)。移動中・槍撃中は1、止まると薄く消える
-  const pikeAlpha = useRef(new Map<string, number>());
   // 突撃中の騎兵が走った跡の砂煙(盤面座標。部隊についていかず、その場で広がって消える)
   type Dust = { x: number; y: number; vx: number; vy: number; born: number; life: number; r0: number; tone: number };
   const dust = useRef<Dust[]>([]);
@@ -104,10 +101,7 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
           d.y += (u.y - d.y) * k;
           const v = Math.hypot(d.x - ox, d.y - oy) / Math.max(dt, 0.001);
           const prev = speed.current.get(key) ?? 0;
-          const sp = prev + (v - prev) * (1 - Math.exp(-dt * 10));
-          speed.current.set(key, sp);
-          const a = pikeAlpha.current.get(key) ?? 0;
-          pikeAlpha.current.set(key, a + ((u.thrust || sp > PIKE_MOVE_SPEED ? 1 : 0) - a) * (1 - Math.exp(-dt * 8)));
+          speed.current.set(key, prev + (v - prev) * (1 - Math.exp(-dt * 10)));
         }
       }
       updateDust(s, now);
@@ -448,15 +442,10 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
   function drawPikes(ctx: CanvasRenderingContext2D, u: UnitView, x: number, y: number, fx: number, fy: number, r: number, now: number) {
     const edge = Math.acos(C.PIKE_COS) * 0.85;
     const angles = [-edge, -edge / 3, edge / 3, edge];
-    // 移動中と槍撃の発動中は、4本が少しずつ位相をずらして突き出す(長さの基準は変えない)
-    const fade = pikeAlpha.current.get(`${u.p}:${u.slot}`) ?? 0;
-    if (fade < 0.02) return; // 止まったら槍の矢印は消える
-    ctx.save();
-    ctx.globalAlpha *= fade;
-    const moving = u.thrust || (speed.current.get(`${u.p}:${u.slot}`) ?? 0) > PIKE_MOVE_SPEED;
+    // 槍が出ているのは槍撃の発動中だけ。4本が少しずつ位相をずらして突き出す
     for (let i = 0; i < 4; i++) {
       const phase = (now / PIKE_STAB_MS + i * 0.23) % 1;
-      const len = u.pike * (moving ? 1 + 0.1 * Math.sin(phase * Math.PI * 2) : 1);
+      const len = u.pike * (1 + 0.1 * Math.sin(phase * Math.PI * 2));
       const c = Math.cos(angles[i]!);
       const s = Math.sin(angles[i]!);
       const dx = fx * c - fy * s;
@@ -481,7 +470,7 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
       ctx.fill();
       // 突き出した瞬間(最も伸びたとき)に、矢じりの先へ小さな光
       const flash = 1 - Math.abs(phase - 0.25) / 0.06;
-      if (moving && flash > 0) {
+      if (flash > 0) {
         ctx.strokeStyle = `rgba(255,255,255,${flash})`;
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -490,7 +479,6 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
         ctx.stroke();
       }
     }
-    ctx.restore();
   }
 
   function drawUnit(ctx: CanvasRenderingContext2D, u: UnitView, now: number) {
