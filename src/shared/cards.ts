@@ -8,7 +8,7 @@ const KANJI_NUM: Record<string, number> = { 一: 1, 二: 2, 三: 3, 四: 4, 五:
 
 /** 計略の説明文から「戦闘中N度しか使用できない」の回数を読み取る(制限がなければ null) */
 export function parseStratUseLimit(text: string): number | null {
-  const m = /この計略は戦闘中([一二三四五])度しか使用できない/.exec(text);
+  const m = /戦闘中([一二三四五])度しか使用できない/.exec(text);
   return m ? KANJI_NUM[m[1]!]! : null;
 }
 

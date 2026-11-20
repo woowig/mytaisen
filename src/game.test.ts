@@ -242,6 +242,11 @@ describe("シミュレーション", () => {
     expect(parseStratUseLimit("この計略は戦闘中二度しか使用できない")).toBe(2);
     expect(parseStratUseLimit("この計略は戦闘中三度しか使用できない")).toBe(3);
     expect(parseStratUseLimit("武力が上がる")).toBeNull();
+    // 前に別の条件が書かれていても、「戦闘中N度しか使用できない」は読み取る
+    expect(parseStratUseLimit("この計略は一定回数自身の斬撃を敵に当てた時のみ使用でき、戦闘中一度しか使用できない")).toBe(1);
+    expect(STRAT_USE_LIMIT_BY_ID.get("PL107")).toBe(1);
+    expect(STRAT_USE_LIMIT_BY_ID.get("EX028")).toBe(3);
+    expect(STRAT_USE_LIMIT_BY_ID.size).toBe(6);
     const card = pick((c) => !c.strat.categories.includes("短計") && STRAT_USE_LIMIT_BY_ID.get(c.id) === 1 && c.cost <= 3);
     const g = createGame(mk([card.id]), mk([ofType("槍兵").id]));
     g.morale[0] = 15;
@@ -300,6 +305,27 @@ describe("シミュレーション", () => {
     run(g, 1);
     g.morale[0] = 15;
     expect(cmdStrat(g, 0, 0)).toBeNull();
+  });
+
+  test("「撤退するまで」の全体強化は、使用者が撤退すると味方の効果も消え、再使用待ち時間が始まる", () => {
+    const card = pick((c) => c.strat.categories.includes("全体強化") && c.strat.time === "撤退するまで" && !STRAT_USE_LIMIT_BY_ID.has(c.id) && c.cost <= 2 && c.strat.mp <= 6);
+    const mate = ofType("槍兵");
+    const g = createGame(mk([card.id, mate.id]), mk([ofType("槍兵").id]));
+    const caster = unitOf(g, 0, 0)!;
+    const ally = unitOf(g, 0, 1)!;
+    STRAT_LOCK_SEC_BY_ID.set(card.id, 7);
+    try {
+      g.morale[0] = 15;
+      expect(cmdStrat(g, 0, 0)).toBeNull();
+      expect(ally.buffs.length).toBeGreaterThan(0);
+      caster.mode = "field";
+      retire(g, caster);
+      expect(ally.buffs.length).toBe(0);
+      expect(snapshotFor(g, 0).units.find((x) => x.p === 0 && x.slot === 0)!.stratActive).toBe(false);
+      expect(caster.stratReady).toBeCloseTo(g.t + 7, 5);
+    } finally {
+      STRAT_LOCK_SEC_BY_ID.delete(card.id);
+    }
   });
 
   test("短計は25秒のクールダウンで、効果中でも使える", () => {

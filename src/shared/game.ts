@@ -56,6 +56,8 @@ interface Buff {
   dStrong: number;
   speedMul: number;
   until: number;
+  /** 計略を使った武将の id(「撤退するまで」の計略は、その武将の撤退で味方・敵の効果も消える) */
+  src?: number;
 }
 
 export interface Unit {
@@ -416,17 +418,17 @@ export function cmdStrat(g: Game, p: PlayerIdx, slot: number): string | null {
   let applied = false;
   const team = g.units.filter((o) => o.p === p && o.mode !== "dead");
   if (cats.includes("全体強化")) {
-    for (const o of team) o.buffs.push({ dStrong: C.STRAT_TEAM_STRONG, speedMul: 1, until });
+    for (const o of team) o.buffs.push({ dStrong: C.STRAT_TEAM_STRONG, speedMul: 1, until, src: u.id });
     applied = true;
   }
   if (cats.includes("強化")) {
-    u.buffs.push({ dStrong: C.STRAT_BUFF_STRONG, speedMul: C.STRAT_BUFF_SPEED, until });
+    u.buffs.push({ dStrong: C.STRAT_BUFF_STRONG, speedMul: C.STRAT_BUFF_SPEED, until, src: u.id });
     applied = true;
   }
   if (cats.includes("妨害")) {
     for (const e of fieldEnemies(g, p, true)) {
       if (dist(u, e) <= C.STRAT_DEBUFF_R) {
-        e.buffs.push({ dStrong: C.STRAT_DEBUFF_STRONG, speedMul: C.STRAT_DEBUFF_SPEED, until });
+        e.buffs.push({ dStrong: C.STRAT_DEBUFF_STRONG, speedMul: C.STRAT_DEBUFF_SPEED, until, src: u.id });
         e.ambush = false;
       }
     }
@@ -447,7 +449,7 @@ export function cmdStrat(g: Game, p: PlayerIdx, slot: number): string | null {
     }
     applied = true;
   }
-  if (!applied) u.buffs.push({ dStrong: C.STRAT_BUFF_STRONG, speedMul: C.STRAT_BUFF_SPEED, until });
+  if (!applied) u.buffs.push({ dStrong: C.STRAT_BUFF_STRONG, speedMul: C.STRAT_BUFF_SPEED, until, src: u.id });
   return null;
 }
 
@@ -539,6 +541,8 @@ export function retire(g: Game, u: Unit) {
   u.charging = false;
   u.vel = 0;
   u.siege = 0;
+  // 「撤退するまで」の計略が味方・敵に与えた効果は、使用者の撤退で消える
+  for (const o of g.units) o.buffs = o.buffs.filter((b) => !(b.src === u.id && b.until >= 1e8));
   u.buffs = [];
   // 撤退で計略の効果は終わる(「撤退するまで」の計略も)
   if (g.t < u.stratEnd) {
