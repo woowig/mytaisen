@@ -119,6 +119,7 @@ export interface Game {
   gate: [number | null, number | null];
   morale: [number, number];
   maxMorale: [number, number];
+  /** 送信待ちの演出。tick と操作(斬撃・計略など)が積み、スナップショットを送った後に空にする */
   fx: Fx[];
   over: null | { winner: PlayerIdx | null; reason: string };
 }
@@ -458,7 +459,6 @@ export function cmdStrat(g: Game, p: PlayerIdx, slot: number): string | null {
 export function tick(g: Game, dt: number = C.DT) {
   if (g.over) return;
   g.t += dt;
-  g.fx = [];
 
   for (const p of [0, 1] as PlayerIdx[]) g.morale[p] = Math.min(g.maxMorale[p], g.morale[p] + C.MORALE_REGEN * dt);
 

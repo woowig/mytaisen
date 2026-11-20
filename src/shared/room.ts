@@ -65,6 +65,7 @@ export class RoomCore {
     this.timer = setInterval(() => {
       tick(game);
       this.players.forEach((p, i) => p?.send({ type: "snapshot", s: snapshotFor(game, i as PlayerIdx) }));
+      game.fx = []; // 送信済み。次の tick までに操作で積まれた演出も、次のスナップショットで届く
       if (game.over) {
         const over = game.over;
         for (const p of this.players) p?.send({ type: "ended", winner: over.winner, reason: over.reason });
