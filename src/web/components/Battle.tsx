@@ -720,7 +720,9 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
   const selCard = sel ? CARD_BY_ID.get(sel.cardId) : undefined;
   const enemy: PlayerIdx = you === 0 ? 1 : 0;
   const short = selCard?.strat.categories.includes("短計");
-  const stratDisabled = !sel || sel.mode === "dead" || (short ? (sel.stratCd ?? 0) > 0 : !!sel.stratUsed) || snap.morale < (selCard?.strat.mp ?? 99);
+  // 計略を使えない理由(通常の計略のみ。短計はクールダウン、士気不足は別扱い)
+  const stratBlock = !sel || short ? "" : sel.stratActive ? "効果中" : (sel.stratLock ?? 0) > 0 ? `あと${Math.ceil(sel.stratLock ?? 0)}秒` : sel.stratLeft === 0 ? "使用済み" : "";
+  const stratDisabled = !sel || sel.mode === "dead" || (short ? (sel.stratCd ?? 0) > 0 : stratBlock !== "") || snap.morale < (selCard?.strat.mp ?? 99);
 
   return (
     <div className="battle">
@@ -787,6 +789,8 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
             <button className="btn primary" disabled={stratDisabled} onClick={selfActions.current.strat}>
               計略 [Q]
               {selCard ? ` ${selCard.strat.name}（士気${selCard.strat.mp}）` : ""}
+              {stratBlock ? ` ${stratBlock}` : ""}
+              {sel && !stratBlock && (sel.stratLeft ?? 0) > 0 ? ` あと${sel.stratLeft}回` : ""}
             </button>
             {selCard && <div className="muted small">{selCard.strat.text}</div>}
             <button className="btn" disabled={!sel || sel.mode !== "field" || (sel.actionCd ?? 0) > 0 || !["剣豪", "鉄砲隊"].includes(selCard?.unit ?? "")} onClick={selfActions.current.action}>

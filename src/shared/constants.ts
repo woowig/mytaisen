@@ -151,6 +151,8 @@ export const FENCE_OFFSET = 130;
 
 // 計略
 export const STRAT_SHORT_CD = 25;
+/** 効果終了後に同じ武将の計略を使えない時間(秒)のデフォルト。計略(カード)ごとに設定できる */
+export const STRAT_LOCK_SEC_DEFAULT = 0;
 export const STRAT_DAMAGE_R = 170;
 export const STRAT_DEBUFF_R = 200;
 export const STRAT_BUFF_STRONG = 3;

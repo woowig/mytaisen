@@ -60,7 +60,12 @@ export interface UnitView {
   tx?: number;
   ty?: number;
   respawn?: number;
-  stratUsed?: boolean;
+  /** 計略の効果中か */
+  stratActive?: boolean;
+  /** 効果終了後に計略を使えない残り時間(秒) */
+  stratLock?: number;
+  /** 試合中にあと何回使えるか(回数に制限がある計略のみ) */
+  stratLeft?: number;
   /** 次の攻城で入るダメージ(城門倍率・武力の増減を含む) */
   siegeDmg?: number;
   stratCd?: number;

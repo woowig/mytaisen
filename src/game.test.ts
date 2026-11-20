@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { CARDS } from "./shared/cards.ts";
+import { CARDS, parseStratUseLimit, STRAT_LOCK_SEC_BY_ID, STRAT_USE_LIMIT_BY_ID } from "./shared/cards.ts";
 import * as C from "./shared/constants.ts";
-import { cmdAction, cmdMove, cmdStrat, createGame, nextSiegeDamage, siegeBaseDamage, siegeCostCoef, siegeNeedSec, snapshotFor, tick, unitOf, validateDeck, type Game } from "./shared/game.ts";
+import { cmdAction, cmdMove, cmdStrat, createGame, retire, nextSiegeDamage, siegeBaseDamage, siegeCostCoef, siegeNeedSec, snapshotFor, tick, unitOf, validateDeck, type Game } from "./shared/game.ts";
 import type { Card, UnitType } from "./shared/types.ts";
 
 const pick = (pred: (c: Card) => boolean, skip = 0) => CARDS.filter(pred)[skip]!;
@@ -196,7 +196,7 @@ describe("シミュレーション", () => {
     expect(b.hp).toBe(b.maxHp);
   });
 
-  test("計略で士気を消費し、使用後は使用済みになる", () => {
+  test("計略で士気を消費し、効果中は再度使えない", () => {
     const card = pick((c) => c.strat.categories.includes("強化") && !c.strat.categories.includes("短計") && c.strat.mp <= 5 && c.skills.length === 0 && c.cost === 1);
     const g = createGame(mk([card.id]), mk([ofType("槍兵").id]));
     g.morale[0] = 10;
@@ -204,6 +204,139 @@ describe("シミュレーション", () => {
     expect(g.morale[0]).toBeCloseTo(10 - card.strat.mp, 5);
     expect(cmdStrat(g, 0, 0)).not.toBeNull();
     expect(unitOf(g, 0, 0)!.buffs.length).toBeGreaterThan(0);
+  });
+
+  const normalStrat = (pred: (c: Card) => boolean) => pick((c) => !c.strat.categories.includes("短計") && c.strat.time === "知力時間" && !STRAT_USE_LIMIT_BY_ID.has(c.id) && c.cost === 1 && pred(c));
+  const afterEffect = (g: Game, slot = 0) => {
+    const u = unitOf(g, 0, slot)!;
+    g.t = u.stratEnd + 0.01;
+  };
+
+  test("計略は効果が終われば、士気が足りている限り何度でも使える", () => {
+    const card = normalStrat((c) => c.strat.mp <= 4);
+    const g = createGame(mk([card.id]), mk([ofType("槍兵").id]));
+    for (let i = 0; i < 3; i++) {
+      g.morale[0] = 10;
+      expect(cmdStrat(g, 0, 0)).toBeNull();
+      expect(g.morale[0]).toBeCloseTo(10 - card.strat.mp, 5);
+      afterEffect(g);
+    }
+  });
+
+  test("効果中は同じ武将の計略を使えない", () => {
+    const card = normalStrat((c) => c.strat.mp <= 4);
+    const g = createGame(mk([card.id]), mk([ofType("槍兵").id]));
+    g.morale[0] = 12;
+    expect(cmdStrat(g, 0, 0)).toBeNull();
+    const m = g.morale[0];
+    expect(cmdStrat(g, 0, 0)).not.toBeNull();
+    expect(g.morale[0]).toBe(m);
+    const v = snapshotFor(g, 0).units.find((x) => x.p === 0 && x.slot === 0)!;
+    expect(v.stratActive).toBe(true);
+    afterEffect(g);
+    expect(snapshotFor(g, 0).units.find((x) => x.p === 0 && x.slot === 0)!.stratActive).toBe(false);
+  });
+
+  test("「戦闘中一度しか使用できない」の読み取りと、2回目が使えないこと(撤退・復活後も)", () => {
+    expect(parseStratUseLimit("この計略は戦闘中一度しか使用できない")).toBe(1);
+    expect(parseStratUseLimit("この計略は戦闘中二度しか使用できない")).toBe(2);
+    expect(parseStratUseLimit("この計略は戦闘中三度しか使用できない")).toBe(3);
+    expect(parseStratUseLimit("武力が上がる")).toBeNull();
+    // 前に別の条件が書かれていても、「戦闘中N度しか使用できない」は読み取る
+    expect(parseStratUseLimit("この計略は一定回数自身の斬撃を敵に当てた時のみ使用でき、戦闘中一度しか使用できない")).toBe(1);
+    expect(STRAT_USE_LIMIT_BY_ID.get("PL107")).toBe(1);
+    expect(STRAT_USE_LIMIT_BY_ID.get("EX028")).toBe(3);
+    expect(STRAT_USE_LIMIT_BY_ID.size).toBe(6);
+    const card = pick((c) => !c.strat.categories.includes("短計") && STRAT_USE_LIMIT_BY_ID.get(c.id) === 1 && c.cost <= 3);
+    const g = createGame(mk([card.id]), mk([ofType("槍兵").id]));
+    g.morale[0] = 15;
+    expect(cmdStrat(g, 0, 0)).toBeNull();
+    expect(snapshotFor(g, 0).units.find((x) => x.p === 0 && x.slot === 0)!.stratLeft).toBe(0);
+    afterEffect(g);
+    expect(cmdStrat(g, 0, 0)).not.toBeNull();
+    // 撤退して復活しても回数は戻らない
+    const u = unitOf(g, 0, 0)!;
+    u.mode = "field";
+    retire(g, u);
+    u.respawn = 0.01;
+    run(g, 1);
+    expect(u.mode as string).toBe("castle");
+    g.morale[0] = 15;
+    expect(cmdStrat(g, 0, 0)).not.toBeNull();
+  });
+
+  test("再使用待ち時間は0がデフォルトで、設定した計略は効果終了後その時間だけ使えない", () => {
+    expect(C.STRAT_LOCK_SEC_DEFAULT).toBe(0);
+    const card = normalStrat((c) => c.strat.mp <= 4);
+    const g = createGame(mk([card.id]), mk([ofType("槍兵").id]));
+    g.morale[0] = 15;
+    expect(cmdStrat(g, 0, 0)).toBeNull();
+    afterEffect(g);
+    expect(cmdStrat(g, 0, 0)).toBeNull(); // 待ち時間0なら効果終了後すぐに使える
+    STRAT_LOCK_SEC_BY_ID.set(card.id, 5);
+    try {
+      g.morale[0] = 15;
+      afterEffect(g);
+      expect(cmdStrat(g, 0, 0)).toBeNull();
+      afterEffect(g);
+      g.morale[0] = 15;
+      expect(cmdStrat(g, 0, 0)).not.toBeNull(); // 効果終了直後は待ち時間中
+      const v = snapshotFor(g, 0).units.find((x) => x.p === 0 && x.slot === 0)!;
+      expect(v.stratLock).toBeGreaterThan(4);
+      g.t = unitOf(g, 0, 0)!.stratReady + 0.01;
+      expect(cmdStrat(g, 0, 0)).toBeNull();
+    } finally {
+      STRAT_LOCK_SEC_BY_ID.delete(card.id);
+    }
+  });
+
+  test("効果時間が「撤退するまで」の計略は、撤退するまで2回目が使えず、復活後は使える", () => {
+    const card = pick((c) => !c.strat.categories.includes("短計") && c.strat.time === "撤退するまで" && !STRAT_USE_LIMIT_BY_ID.has(c.id) && c.cost <= 2 && c.strat.mp <= 6);
+    const g = createGame(mk([card.id]), mk([ofType("槍兵").id]));
+    g.morale[0] = 15;
+    expect(cmdStrat(g, 0, 0)).toBeNull();
+    run(g, 60);
+    g.morale[0] = 15;
+    expect(cmdStrat(g, 0, 0)).not.toBeNull();
+    const u = unitOf(g, 0, 0)!;
+    u.mode = "field";
+    retire(g, u);
+    u.respawn = 0.01;
+    run(g, 1);
+    g.morale[0] = 15;
+    expect(cmdStrat(g, 0, 0)).toBeNull();
+  });
+
+  test("「撤退するまで」の全体強化は、使用者が撤退すると味方の効果も消え、再使用待ち時間が始まる", () => {
+    const card = pick((c) => c.strat.categories.includes("全体強化") && c.strat.time === "撤退するまで" && !STRAT_USE_LIMIT_BY_ID.has(c.id) && c.cost <= 2 && c.strat.mp <= 6);
+    const mate = ofType("槍兵");
+    const g = createGame(mk([card.id, mate.id]), mk([ofType("槍兵").id]));
+    const caster = unitOf(g, 0, 0)!;
+    const ally = unitOf(g, 0, 1)!;
+    STRAT_LOCK_SEC_BY_ID.set(card.id, 7);
+    try {
+      g.morale[0] = 15;
+      expect(cmdStrat(g, 0, 0)).toBeNull();
+      expect(ally.buffs.length).toBeGreaterThan(0);
+      caster.mode = "field";
+      retire(g, caster);
+      expect(ally.buffs.length).toBe(0);
+      expect(snapshotFor(g, 0).units.find((x) => x.p === 0 && x.slot === 0)!.stratActive).toBe(false);
+      expect(caster.stratReady).toBeCloseTo(g.t + 7, 5);
+    } finally {
+      STRAT_LOCK_SEC_BY_ID.delete(card.id);
+    }
+  });
+
+  test("短計は25秒のクールダウンで、効果中でも使える", () => {
+    const card = pick((c) => c.strat.categories.includes("短計") && c.cost === 1 && c.strat.mp <= 2);
+    const g = createGame(mk([card.id]), mk([ofType("槍兵").id]));
+    g.morale[0] = 15;
+    expect(cmdStrat(g, 0, 0)).toBeNull();
+    expect(cmdStrat(g, 0, 0)).not.toBeNull();
+    run(g, C.STRAT_SHORT_CD + 1);
+    g.morale[0] = 15;
+    expect(cmdStrat(g, 0, 0)).toBeNull();
   });
 
   test("士気が足りなければ計略は失敗", () => {
