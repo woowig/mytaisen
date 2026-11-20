@@ -1,6 +1,6 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "mytaisen", "runtimeExecutable": "bun", "runtimeArgs": ["src/server.ts"], "port": 3000 }
+    { "name": "mytaisen", "runtimeExecutable": "bun", "runtimeArgs": ["--hot", "src/server.ts"], "port": 3000 }
   ]
 }

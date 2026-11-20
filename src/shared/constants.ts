@@ -4,7 +4,7 @@ import type { UnitType } from "./types.ts";
 export const FIELD_W = 600;
 export const FIELD_H = 1000;
 export const CASTLE_ZONE_H = 110; // 城エリアの高さ(各自陣の端)
-export const GATE_HALF_W = 70; // 城門(弱点)の半幅
+export const GATE_HALF_W = 22; // 城門の半幅(城の中央・カード1枚分の幅。同時に攻撃できるのは1部隊だけ)
 
 export const TICK_RATE = 20;
 export const DT = 1 / TICK_RATE;
@@ -110,7 +110,8 @@ export const SIEGE_NEED_PER_INTEL = 0.35;
 export const SIEGE_NEED_MIN = 1.6;
 export const SIEGE_COST_K = 0.45;
 export const SIEGE_STRONG_K = 0.16;
-export const SIEGE_GATE_MUL = 2;
+export const SIEGE_GATE_MUL = 3; // 城門攻撃のダメージ倍率(城壁は1倍)
+export const SIEGE_REACH = UNIT_RADIUS + 6; // 城壁からこの距離以内で攻城できる
 
 // 特技
 export const AMBUSH_SPEED_MUL = 0.7;

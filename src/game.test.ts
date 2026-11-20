@@ -152,6 +152,27 @@ describe("シミュレーション", () => {
     expect(g.over?.winner).toBe(0);
   });
 
+  test("敵城エリアには入れず、城壁で止まる", () => {
+    const g = createGame(mk([ofType("槍兵").id]), mk([ofType("弓兵").id]));
+    cmdMove(g, 0, 0, 100, 10);
+    run(g, 40);
+    expect(g.units[0]!.y).toBeGreaterThanOrEqual(C.CASTLE_ZONE_H + C.UNIT_RADIUS - 0.001);
+    expect(g.castle[1]).toBeLessThan(C.CASTLE_HP); // 城壁への攻撃は通る
+  });
+
+  test("城門を攻撃できるのは1部隊だけで、城壁より大きなダメージ", () => {
+    const a = pick((c) => c.unit === "槍兵" && c.cost === 1 && c.skills.length === 0);
+    const b = pick((c) => c.unit === "槍兵" && c.cost === 1 && c.skills.length === 0 && c.id !== a.id);
+    const g = createGame(mk([a.id, b.id]), mk([ofType("弓兵").id]));
+    cmdMove(g, 0, 0, C.FIELD_W / 2, 10);
+    cmdMove(g, 0, 1, C.FIELD_W / 2 + 10, 10);
+    run(g, 50);
+    const holders = g.units.filter((u) => u.p === 0 && g.gate[1] === u.id);
+    expect(holders.length).toBe(1);
+    const other = g.units.find((u) => u.p === 0 && u.id !== g.gate[1])!;
+    expect(other.sieging).toBe(true);
+  });
+
   test("時間切れは城ゲージの多い方が勝ち", () => {
     const g = createGame(mk([ofType("槍兵").id]), mk([ofType("槍兵").id]));
     g.castle = [80, 50];
@@ -209,6 +230,11 @@ describe("シミュレーション", () => {
 
   test("相手には見えない情報が漏れない", () => {
     const g = createGame(mk([ofType("槍兵").id]), mk([ofType("槍兵").id]));
+    expect(snapshotFor(g, 1).units.some((u) => u.p === 0)).toBe(false); // 城内の敵は見えない
+    const e0 = unitOf(g, 0, 0)!;
+    e0.mode = "field"; // 出城した直後でも、まだ城エリア内なら見えない
+    expect(snapshotFor(g, 1).units.some((u) => u.p === 0)).toBe(false);
+    e0.y = C.FIELD_H / 2;
     const s = snapshotFor(g, 1);
     const enemy = s.units.find((u) => u.p === 0)!;
     expect(enemy.tx).toBeUndefined();

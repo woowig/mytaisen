@@ -7,6 +7,8 @@ import { CardArt } from "./CardArt.tsx";
 
 const CARD_W = 52;
 const CARD_H = 74;
+// カード中心がこれより上には行かない(カード上端が敵の城壁に接する位置)
+const CARD_MIN_Y = C.CASTLE_ZONE_H + CARD_H / 2;
 const ME_COLOR = "#4aa3ff";
 const EN_COLOR = "#ff5a5a";
 
@@ -81,19 +83,23 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
 
   const sc = (cv: HTMLCanvasElement) => cv.width / C.FIELD_W;
 
-  function drawZones(ctx: CanvasRenderingContext2D, mine: string, enemy: string) {
-    const W = C.FIELD_W;
-    const H = C.FIELD_H;
-    const z = C.CASTLE_ZONE_H;
-    ctx.fillStyle = enemy;
-    ctx.fillRect(0, 0, W, z);
-    ctx.fillStyle = mine;
-    ctx.fillRect(0, H - z, W, z);
+  /** 敵城の城門位置(表示範囲の上端・中央)。幅はカード1枚分 */
+  function drawEnemyGate(ctx: CanvasRenderingContext2D) {
+    const x = C.FIELD_W / 2;
+    const y = C.CASTLE_ZONE_H;
+    ctx.fillStyle = "rgba(255,90,90,0.35)";
+    ctx.fillRect(x - C.GATE_HALF_W, y, C.GATE_HALF_W * 2, C.UNIT_RADIUS * 2);
+    ctx.fillStyle = EN_COLOR;
+    ctx.fillRect(x - C.GATE_HALF_W, y, C.GATE_HALF_W * 2, 5);
+    ctx.fillStyle = "rgba(255,255,255,0.8)";
+    ctx.font = "bold 14px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("城門", x, y + 24);
   }
 
   function drawCardField(ctx: CanvasRenderingContext2D, cv: HTMLCanvasElement, s: Snapshot) {
     const k = sc(cv);
-    ctx.setTransform(k, 0, 0, k, 0, 0);
+    ctx.setTransform(k, 0, 0, k, 0, -C.CASTLE_ZONE_H * k); // 敵城エリア分は表示しない
     const W = C.FIELD_W;
     const H = C.FIELD_H;
     const g = ctx.createLinearGradient(0, 0, 0, H);
@@ -110,7 +116,10 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
       ctx.lineTo(W, y);
       ctx.stroke();
     }
-    drawZones(ctx, "rgba(74,163,255,0.14)", "rgba(255,90,90,0.10)");
+    // 自城エリアのみ。敵城エリアは表示しない
+    ctx.fillStyle = "rgba(74,163,255,0.14)";
+    ctx.fillRect(0, H - C.CASTLE_ZONE_H, W, C.CASTLE_ZONE_H);
+    drawEnemyGate(ctx);
     ctx.strokeStyle = "rgba(255,255,255,0.18)";
     ctx.setLineDash([8, 8]);
     ctx.beginPath();
@@ -122,7 +131,6 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
     ctx.font = "bold 22px sans-serif";
     ctx.textAlign = "center";
     ctx.fillText("自城", W / 2, H - 10);
-    ctx.fillText("敵城", W / 2, 30);
 
     const mine = s.units.filter((u) => u.p === you);
     // 部隊の実位置(ゴースト)と指示線
@@ -151,7 +159,8 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
   function cardPos(u: UnitView): [number, number] {
     const dr = drag.current;
     if (dr && dr.slot === u.slot) return [dr.x, dr.y];
-    return toView(u.tx ?? u.x, u.ty ?? u.y);
+    const [x, y] = toView(u.tx ?? u.x, u.ty ?? u.y);
+    return [x, Math.max(y, CARD_MIN_Y)];
   }
 
   function drawToken(ctx: CanvasRenderingContext2D, u: UnitView) {
@@ -227,7 +236,7 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
 
   function drawBattleField(ctx: CanvasRenderingContext2D, cv: HTMLCanvasElement, s: Snapshot, now: number) {
     const k = sc(cv);
-    ctx.setTransform(k, 0, 0, k, 0, 0);
+    ctx.setTransform(k, 0, 0, k, 0, -C.CASTLE_ZONE_H * k); // 敵城エリア分は表示しない
     const W = C.FIELD_W;
     const H = C.FIELD_H;
     const z = C.CASTLE_ZONE_H;
@@ -240,11 +249,12 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
     // 川
     ctx.fillStyle = "rgba(80,140,200,0.35)";
     ctx.fillRect(0, H / 2 - 18, W, 36);
-    drawZones(ctx, "rgba(74,163,255,0.22)", "rgba(255,90,90,0.22)");
+    // 自城のみ描く(敵城は見せない)
+    ctx.fillStyle = "rgba(74,163,255,0.22)";
+    ctx.fillRect(0, H - z, W, z);
+    drawEnemyGate(ctx);
     // 城
-    const myCastleY = H - z / 2;
-    drawCastle(ctx, W / 2, myCastleY, ME_COLOR, s.castle[you] / C.CASTLE_HP);
-    drawCastle(ctx, W / 2, z / 2, EN_COLOR, s.castle[you === 0 ? 1 : 0] / C.CASTLE_HP);
+    drawCastle(ctx, W / 2, H - z, ME_COLOR);
     // 柵
     for (const f of s.fences) {
       const [x1, y1] = toView(f.x, f.y);
@@ -265,23 +275,16 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
     return [...list].reverse();
   }
 
-  function drawCastle(ctx: CanvasRenderingContext2D, cx: number, cy: number, col: string, ratio: number) {
-    ctx.fillStyle = "rgba(20,20,30,0.75)";
-    roundRect(ctx, cx - 120, cy - 36, 240, 72, 10);
-    ctx.fill();
-    ctx.strokeStyle = col;
-    ctx.lineWidth = 3;
-    ctx.stroke();
-    ctx.fillStyle = "#222";
-    ctx.fillRect(cx - C.GATE_HALF_W, cy - 24, C.GATE_HALF_W * 2, 48);
-    ctx.fillStyle = "rgba(255,255,255,0.55)";
-    ctx.font = "bold 13px sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText("城門", cx, cy + 5);
-    ctx.fillStyle = "#000";
-    ctx.fillRect(cx - 100, cy - 52, 200, 8);
+  /** 自城の城門。城壁の位置(城エリアの上端)に、判定幅=カード1枚分だけ描く */
+  function drawCastle(ctx: CanvasRenderingContext2D, cx: number, wallY: number, col: string) {
     ctx.fillStyle = col;
-    ctx.fillRect(cx - 100, cy - 52, 200 * Math.max(0, ratio), 8);
+    ctx.fillRect(cx - C.GATE_HALF_W, wallY, C.GATE_HALF_W * 2, 5);
+    ctx.fillStyle = "rgba(20,20,30,0.75)";
+    ctx.fillRect(cx - C.GATE_HALF_W, wallY + 5, C.GATE_HALF_W * 2, 16);
+    ctx.fillStyle = "rgba(255,255,255,0.7)";
+    ctx.font = "bold 11px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("城門", cx, wallY + 17);
   }
 
   function drawUnit(ctx: CanvasRenderingContext2D, u: UnitView, now: number) {
@@ -428,10 +431,13 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
   // ---- 入力(カードフィールド) ----
   const toLogical = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
-    return [((e.clientX - r.left) / r.width) * C.FIELD_W, ((e.clientY - r.top) / r.height) * C.FIELD_H] as const;
+    // 敵城エリアはカードフィールドに無いので、その手前までに制限
+    const y = Math.max(C.CASTLE_ZONE_H + ((e.clientY - r.top) / r.height) * (C.FIELD_H - C.CASTLE_ZONE_H), C.CASTLE_ZONE_H + C.UNIT_RADIUS);
+    return [((e.clientX - r.left) / r.width) * C.FIELD_W, y] as const;
   };
   const sendMove = (slot: number, vx: number, vy: number) => {
-    const [x, y] = toView(vx, vy); // 反転は自己逆変換
+    // カード上端が城壁に接したら、城壁(城門)への攻撃になる
+    const [x, y] = toView(vx, vy <= CARD_MIN_Y + 0.5 ? C.CASTLE_ZONE_H : vy); // 反転は自己逆変換
     send({ type: "move", slot, x, y });
   };
   const onDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -459,7 +465,7 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
     if (!d) return;
     const [px, py] = toLogical(e);
     d.x = Math.min(C.FIELD_W, Math.max(0, px - d.dx));
-    d.y = Math.min(C.FIELD_H, Math.max(0, py - d.dy));
+    d.y = Math.min(C.FIELD_H, Math.max(CARD_MIN_Y, py - d.dy));
     const now = performance.now();
     if (now - d.lastSent > 50) {
       d.lastSent = now;

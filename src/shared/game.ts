@@ -115,6 +115,8 @@ export interface Game {
   units: Unit[];
   fences: Fence[];
   castle: [number, number];
+  /** 城門を攻撃中の部隊id(添字は守る側)。1部隊のみ */
+  gate: [number | null, number | null];
   morale: [number, number];
   maxMorale: [number, number];
   fx: Fx[];
@@ -194,6 +196,7 @@ export function createGame(deckA: DeckInfo, deckB: DeckInfo): Game {
     units,
     fences,
     castle: [C.CASTLE_HP, C.CASTLE_HP],
+    gate: [null, null],
     morale: [deckA.startMorale, deckB.startMorale],
     maxMorale: [deckA.maxMorale, deckB.maxMorale],
     fx: [],
@@ -304,7 +307,8 @@ export function cmdMove(g: Game, p: PlayerIdx, slot: number, x: number, y: numbe
   if (!Number.isFinite(x) || !Number.isFinite(y)) return "座標が不正です";
   if (u.mode === "dead") return "撤退中です";
   u.tx = clamp(x, 0, C.FIELD_W);
-  u.ty = clamp(y, 0, C.FIELD_H);
+  // 敵城エリアには入れない
+  u.ty = p === 0 ? clamp(y, C.CASTLE_ZONE_H + C.UNIT_RADIUS, C.FIELD_H) : clamp(y, 0, C.FIELD_H - C.CASTLE_ZONE_H - C.UNIT_RADIUS);
   return null;
 }
 
@@ -513,6 +517,7 @@ export function tick(g: Game, dt: number = C.DT) {
   resolveContacts(g, dt);
   updatePikes(g, dt);
   updateRanged(g, dt);
+  keepOutOfEnemyCastle(g);
   updateSiege(g, dt);
   updateStealth(g);
   updateRegen(g, dt);
@@ -747,14 +752,32 @@ function updateRanged(g: Game, dt: number) {
   }
 }
 
-function updateSiege(g: Game, dt: number) {
+/** 敵城エリアには入れない。城壁(城エリアの境界)で止まる */
+function keepOutOfEnemyCastle(g: Game) {
   for (const u of g.units) {
-    if (u.mode !== "field" || u.melee) {
-      u.siege = 0;
-      continue;
-    }
-    const inEnemyZone = inCastleZone(enemyOf(u.p), u.y);
-    if (!inEnemyZone) {
+    if (u.mode !== "field") continue;
+    if (u.p === 0) u.y = Math.max(u.y, C.CASTLE_ZONE_H + C.UNIT_RADIUS);
+    else u.y = Math.min(u.y, C.FIELD_H - C.CASTLE_ZONE_H - C.UNIT_RADIUS);
+  }
+}
+
+function atWall(u: Unit) {
+  return u.p === 0 ? u.y - C.CASTLE_ZONE_H <= C.SIEGE_REACH : C.FIELD_H - C.CASTLE_ZONE_H - u.y <= C.SIEGE_REACH;
+}
+
+function updateSiege(g: Game, dt: number) {
+  const cand = (u: Unit) => u.mode === "field" && !u.melee && atWall(u);
+  // 城門担当(守る側ごとに1部隊)。続投できなければ中央に近い部隊へ交代
+  for (const e of [0, 1] as PlayerIdx[]) {
+    const inGate = (u: Unit) => u.p !== e && cand(u) && Math.abs(u.x - C.FIELD_W / 2) <= C.GATE_HALF_W;
+    const cur = g.gate[e] === null ? undefined : g.units.find((u) => u.id === g.gate[e]);
+    if (cur && inGate(cur)) continue;
+    let best: Unit | null = null;
+    for (const u of g.units) if (inGate(u) && (!best || Math.abs(u.x - C.FIELD_W / 2) < Math.abs(best.x - C.FIELD_W / 2))) best = u;
+    g.gate[e] = best ? best.id : null;
+  }
+  for (const u of g.units) {
+    if (!cand(u)) {
       u.siege = 0;
       continue;
     }
@@ -768,9 +791,9 @@ function updateSiege(g: Game, dt: number) {
     const need = clamp(C.SIEGE_NEED_MAX - intelOf(g, u) * C.SIEGE_NEED_PER_INTEL, C.SIEGE_NEED_MIN, C.SIEGE_NEED_MAX);
     if (u.siege >= need) {
       u.siege = 0;
-      const gate = Math.abs(u.x - C.FIELD_W / 2) <= C.GATE_HALF_W ? C.SIEGE_GATE_MUL : 1;
-      const dmg = Math.max(0.3, u.card.cost * C.SIEGE_COST_K + strongOf(g, u) * C.SIEGE_STRONG_K + C.SIEGE_BONUS[u.card.unit as UnitType]) * gate;
       const e = enemyOf(u.p);
+      const gate = g.gate[e] === u.id ? C.SIEGE_GATE_MUL : 1;
+      const dmg = Math.max(0.3, u.card.cost * C.SIEGE_COST_K + strongOf(g, u) * C.SIEGE_STRONG_K + C.SIEGE_BONUS[u.card.unit as UnitType]) * gate;
       g.castle[e] = Math.max(0, g.castle[e] - dmg);
       emit(g, { k: "castle", x: u.x, y: u.y, p: u.p });
     }
@@ -790,7 +813,7 @@ function updateStealth(g: Game) {
     }
     if (has(u, "忍") && u.mode === "field") {
       const near = g.units.some((e) => e.p !== u.p && e.mode === "field" && dist(u, e) <= C.STEALTH_REVEAL_DIST);
-      if (near || u.sieging || inCastleZone(enemyOf(u.p), u.y)) u.stealthT = Math.max(u.stealthT, 1);
+      if (near || u.sieging) u.stealthT = Math.max(u.stealthT, 1);
       u.hidden = u.stealthT <= 0;
     } else u.hidden = false;
   }
@@ -816,7 +839,7 @@ export function snapshotFor(g: Game, me: PlayerIdx): Snapshot {
   for (const u of g.units) {
     const mine = u.p === me;
     if (!mine) {
-      if (u.mode === "dead") continue;
+      if (u.mode === "dead" || u.mode === "castle" || inCastleZone(u.p, u.y)) continue; // 敵城内部(出入り中の部隊を含む)は見えない
       if (u.hidden && u.mode === "field") continue;
     }
     const v: UnitView = {
