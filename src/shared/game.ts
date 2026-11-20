@@ -877,6 +877,7 @@ export function snapshotFor(g: Game, me: PlayerIdx): Snapshot {
       hidden: u.hidden,
       charging: u.charging,
       pike: round(pikeLen(u)),
+      thrust: u.thrustT > 0,
       melee: u.melee,
       sieging: u.sieging,
       siegeRatio: 0,

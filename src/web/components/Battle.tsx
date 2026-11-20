@@ -13,6 +13,8 @@ const CARD_MIN_Y = C.CASTLE_ZONE_H + CARD_H / 2;
 // カード上端が壁にほぼ接していれば壁への攻撃指示にする(余裕分)
 const WALL_SNAP = 14;
 const DBLCLICK_MS = 300; // ダブルクリックとみなす間隔
+const PIKE_MOVE_SPEED = 12; // これより速く動いている槍兵は「移動中」(表示px/s)
+const PIKE_STAB_MS = 350; // 移動中の槍の突き出し周期
 const TAP_SLOP = 8; // この距離以内ならカードを動かしていないクリックとみなす(画面のCSS px)
 // 兵種ごとのゲージ名(スナップショットの gauge を表示する)
 const GAUGE_LABEL: Record<string, string> = { 弓兵: "掃射", 剣豪: "斬撃", 鉄砲隊: "チャージ" };
@@ -39,6 +41,8 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
   const cardCv = useRef<HTMLCanvasElement>(null);
   const fieldCv = useRef<HTMLCanvasElement>(null);
   const disp = useRef(new Map<string, { x: number; y: number }>());
+  // 表示位置から求めた部隊ごとの移動速度(px/s、なめらかにしたもの)。槍の移動中エフェクトの判定に使う
+  const speed = useRef(new Map<string, number>());
   const fxLive = useRef<FxLive[]>([]);
   // カードを振る操作(剣豪の斬撃)の検出
   const swing = useRef(new ShakeDetector(SWING));
@@ -82,8 +86,13 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
         const d = disp.current.get(key);
         if (!d || Math.hypot(d.x - u.x, d.y - u.y) > 200) disp.current.set(key, { x: u.x, y: u.y });
         else {
+          const ox = d.x;
+          const oy = d.y;
           d.x += (u.x - d.x) * k;
           d.y += (u.y - d.y) * k;
+          const v = Math.hypot(d.x - ox, d.y - oy) / Math.max(dt, 0.001);
+          const prev = speed.current.get(key) ?? 0;
+          speed.current.set(key, prev + (v - prev) * (1 - Math.exp(-dt * 10)));
         }
       }
       if (cardCv.current) drawCardField(fit(cardCv.current), cardCv.current, s);
@@ -319,6 +328,50 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
     ctx.fillText("城門", cx, wallY + 17);
   }
 
+  // 槍: 移動方向へ扇形に並ぶ4本の矢印。外側の2本は槍撃の有効角度のすぐ内側
+  function drawPikes(ctx: CanvasRenderingContext2D, u: UnitView, x: number, y: number, fx: number, fy: number, r: number, now: number) {
+    const edge = Math.acos(C.PIKE_COS) * 0.85;
+    const angles = [-edge, -edge / 3, edge / 3, edge];
+    // 移動中(槍撃アクション中は除く)は、4本が少しずつ位相をずらして伸び縮みする
+    const moving = !u.thrust && (speed.current.get(`${u.p}:${u.slot}`) ?? 0) > PIKE_MOVE_SPEED;
+    for (let i = 0; i < 4; i++) {
+      const phase = (now / PIKE_STAB_MS + i * 0.23) % 1;
+      const len = u.pike * (moving ? 1 + 0.1 * Math.sin(phase * Math.PI * 2) : 1);
+      const c = Math.cos(angles[i]!);
+      const s = Math.sin(angles[i]!);
+      const dx = fx * c - fy * s;
+      const dy = fx * s + fy * c;
+      const head = 8;
+      const sx = x + dx * r;
+      const sy = y + dy * r;
+      const tx = x + dx * len;
+      const ty = y + dy * len;
+      ctx.strokeStyle = "#e8e0c8";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(tx - dx * head, ty - dy * head);
+      ctx.stroke();
+      ctx.fillStyle = "#fff8e0";
+      ctx.beginPath();
+      ctx.moveTo(tx, ty);
+      ctx.lineTo(tx - dx * head - dy * 3.5, ty - dy * head + dx * 3.5);
+      ctx.lineTo(tx - dx * head + dy * 3.5, ty - dy * head - dx * 3.5);
+      ctx.closePath();
+      ctx.fill();
+      // 突き出した瞬間(最も伸びたとき)に、矢じりの先へ小さな光
+      const flash = 1 - Math.abs(phase - 0.25) / 0.06;
+      if (moving && flash > 0) {
+        ctx.strokeStyle = `rgba(255,255,255,${flash})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(tx, ty);
+        ctx.lineTo(tx + dx * 7, ty + dy * 7);
+        ctx.stroke();
+      }
+    }
+  }
+
   function drawUnit(ctx: CanvasRenderingContext2D, u: UnitView, now: number) {
     const d = disp.current.get(`${u.p}:${u.slot}`);
     if (!d) return;
@@ -332,14 +385,7 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
     if (u.mode === "castle") ctx.globalAlpha = 0.7;
     if (u.hidden) ctx.globalAlpha = 0.4;
     // 槍
-    if (u.pike > 0) {
-      ctx.strokeStyle = "#e8e0c8";
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(x, y);
-      ctx.lineTo(x + fx * u.pike, y + fy * u.pike);
-      ctx.stroke();
-    }
+    if (u.pike > 0) drawPikes(ctx, u, x, y, fx, fy, r, now);
     if (u.charging) {
       ctx.fillStyle = "rgba(255,170,60,0.35)";
       ctx.beginPath();
