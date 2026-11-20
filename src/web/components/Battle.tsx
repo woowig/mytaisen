@@ -92,8 +92,10 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
       for (const u of s.units) {
         const key = `${u.p}:${u.slot}`;
         const d = disp.current.get(key);
-        if (!d || Math.hypot(d.x - u.x, d.y - u.y) > 200) disp.current.set(key, { x: u.x, y: u.y });
-        else {
+        if (!d || Math.hypot(d.x - u.x, d.y - u.y) > 200) {
+          disp.current.set(key, { x: u.x, y: u.y });
+          dustLast.current.delete(key); // 飛んだ先で砂煙の筋がつながらないように
+        } else {
           const ox = d.x;
           const oy = d.y;
           d.x += (u.x - d.x) * k;
@@ -327,13 +329,16 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
     const puff = (x: number, y: number, vx: number, vy: number, r0: number) => {
       list.push({ x, y, vx, vy, born: now, life: 600 + Math.random() * 400, r0, tone: Math.random() });
     };
+    const alive = new Set(s.units.map((u) => `${u.p}:${u.slot}`));
+    for (const key of dustLast.current.keys()) if (!alive.has(key)) dustLast.current.delete(key);
+    for (const key of wasCharging.current.keys()) if (!alive.has(key)) wasCharging.current.delete(key);
     for (const u of s.units) {
       const key = `${u.p}:${u.slot}`;
       const d = disp.current.get(key);
       if (!d) continue;
       const visible = u.mode === "field" && !u.hidden;
       // 突撃可能になった瞬間は、周囲に一度だけぶわっと広がる
-      if (u.charging && visible && !wasCharging.current.get(key)) {
+      if (u.charging && visible && wasCharging.current.get(key) === false) {
         for (let i = 0; i < 12; i++) {
           const a = (i / 12) * Math.PI * 2 + Math.random() * 0.4;
           const sp = 25 + Math.random() * 35;
@@ -377,13 +382,13 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
 
   // 突撃オーラ: 進行方向に尖り、後方へ尾を引く炎の形と、後方へ流れる速度線
   function drawChargeAura(ctx: CanvasRenderingContext2D, x: number, y: number, fx: number, fy: number, r: number, now: number) {
-    const L = r * 3.4; // 尾の長さ
+    const L = r * 4; // 尾の長さ
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(Math.atan2(fy, fx)); // +x が進行方向
     const grad = ctx.createLinearGradient(r * 1.2, 0, -L, 0);
-    grad.addColorStop(0, "rgba(255,214,110,0.85)");
-    grad.addColorStop(0.45, "rgba(255,150,50,0.5)");
+    grad.addColorStop(0, "rgba(255,226,130,0.95)");
+    grad.addColorStop(0.45, "rgba(255,150,50,0.65)");
     grad.addColorStop(1, "rgba(255,90,20,0)");
     ctx.fillStyle = grad;
     ctx.beginPath();
@@ -491,8 +496,8 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
     if (u.mode === "castle") ctx.globalAlpha = 0.7;
     if (u.hidden) ctx.globalAlpha = 0.4;
     // 槍
-    if (u.pike > 0) drawPikes(ctx, u, x, y, fx, fy, r, now);
     if (u.charging) drawChargeAura(ctx, x, y, fx, fy, r, now);
+    if (u.pike > 0) drawPikes(ctx, u, x, y, fx, fy, r, now);
     if (u.sieging) {
       ctx.strokeStyle = "#ffe36b";
       ctx.lineWidth = 4;
