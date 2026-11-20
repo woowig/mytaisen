@@ -61,6 +61,8 @@ export interface UnitView {
   stratUsed?: boolean;
   stratCd?: number;
   actionCd?: number;
+  /** 兵種ゲージ(0〜1)。弓兵=掃射、剣豪=斬撃、鉄砲隊=チャージ */
+  gauge?: number;
   buffed?: boolean;
   debuffed?: boolean;
 }

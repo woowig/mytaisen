@@ -78,7 +78,6 @@ export interface Unit {
   hidden: boolean;
   charging: boolean;
   stillT: number;
-  runShootT: number;
   melee: boolean;
   sieging: boolean;
   siege: number; // 攻城ゲージ(秒)
@@ -165,7 +164,6 @@ export function createGame(deckA: DeckInfo, deckB: DeckInfo): Game {
         hidden: false,
         charging: false,
         stillT: 0,
-        runShootT: 0,
         melee: false,
         sieging: false,
         siege: 0,
@@ -576,7 +574,6 @@ function stepUnit(g: Game, u: Unit, dt: number, contacts: Map<number, number[]>)
   speed *= buffSpeed(u) * u.slowF;
   if (u.ambush) speed *= C.AMBUSH_SPEED_MUL;
   if (u.charging) speed *= C.CHARGE_SPEED_MUL;
-  if (u.runShootT > 0) speed *= C.BOW_RUNSHOT_SPEED;
   if (u.melee) speed *= C.MELEE_SLOW;
   const dx = u.tx - u.x;
   const dy = u.ty - u.y;
@@ -633,16 +630,9 @@ function stepUnit(g: Game, u: Unit, dt: number, contacts: Map<number, number[]>)
     }
   }
 
-  // 弓兵の静止時間
-  if (u.card.unit === "弓兵" && u.mode === "field") {
-    if (moved < 0.2 && !u.melee) {
-      u.stillT += dt;
-      if (u.stillT >= C.BOW_STILL_FOR_RUNSHOT && u.runShootT <= 0) {
-        u.runShootT = C.BOW_RUNSHOT_T;
-        u.stillT = 0;
-      }
-    } else u.stillT = 0;
-    if (u.runShootT > 0) u.runShootT = Math.max(0, u.runShootT - dt);
+  // 弓兵の掃射ゲージ: 停止している間だけ蓄積する(移動中は保持)
+  if (u.card.unit === "弓兵" && u.mode === "field" && moved < 0.2 && !u.melee) {
+    u.stillT = Math.min(C.BOW_SWEEP_FILL_T, u.stillT + dt);
   }
 }
 
@@ -744,14 +734,29 @@ function updateRanged(g: Game, dt: number) {
   for (const u of g.units) {
     if (u.mode !== "field" || u.melee || u.ambush) continue;
     if (u.card.unit === "弓兵") {
-      const still = u.lastSpeed < 1;
-      if (!(still || u.runShootT > 0) || u.cdBow > 0 || u.sieging) continue;
-      const t = nearest(u, fieldEnemies(g, u.p), C.BOW_RANGE);
+      if (u.sieging) continue;
+      // 攻撃対象: 移動方向を基準に、射程内で最も近い敵(一定の角度内)
+      const t = nearest(u, fieldEnemies(g, u.p).filter((e) => {
+        const dx = e.x - u.x;
+        const dy = e.y - u.y;
+        const d = Math.hypot(dx, dy) || 1;
+        return d <= C.UNIT_RADIUS || (dx * u.fx + dy * u.fy) / d >= C.BOW_COS;
+      }), C.BOW_RANGE);
       if (!t) continue;
+      const dmg = C.BOW_DMG_BASE + strongOf(g, u) * C.BOW_DMG_PER_STRONG;
+      // 掃射: ゲージが満ちた状態で移動を始めると、現在の対象に追加ダメージ
+      if (u.stillT >= C.BOW_SWEEP_FILL_T && u.lastSpeed >= 1) {
+        u.stillT = 0;
+        u.hidden = false;
+        u.stealthT = C.STEALTH_RECOVER_T;
+        damage(g, t, dmg * C.BOW_SWEEP_MUL, "arrow");
+        emit(g, { k: "arrow", x: u.x, y: u.y, x2: t.x, y2: t.y, p: u.p });
+      }
+      if (u.cdBow > 0) continue;
       u.cdBow = C.BOW_CD;
       u.hidden = false;
       u.stealthT = C.STEALTH_RECOVER_T;
-      damage(g, t, C.BOW_DMG_BASE + strongOf(g, u) * C.BOW_DMG_PER_STRONG, "arrow");
+      damage(g, t, dmg, "arrow");
       if (t.sieging) t.siege = Math.max(0, t.siege - C.ARROW_SIEGE_BREAK);
       emit(g, { k: "arrow", x: u.x, y: u.y, x2: t.x, y2: t.y, p: u.p });
     } else if (u.card.unit === "鉄砲隊") {
@@ -850,6 +855,12 @@ function updateRegen(g: Game, dt: number) {
 
 // ---------- スナップショット ----------
 
+/** 兵種ごとのゲージ(0〜1)。画面に表示する */
+function gaugeOf(u: Unit): number {
+  if (u.card.unit === "弓兵") return u.stillT / C.BOW_SWEEP_FILL_T;
+  return 0;
+}
+
 export function snapshotFor(g: Game, me: PlayerIdx): Snapshot {
   const units: UnitView[] = [];
   for (const u of g.units) {
@@ -887,6 +898,7 @@ export function snapshotFor(g: Game, me: PlayerIdx): Snapshot {
       v.stratUsed = u.stratUsed;
       v.stratCd = round(u.stratCd, 1);
       v.actionCd = round(u.cdAction, 1);
+      v.gauge = round(gaugeOf(u), 2);
       v.buffed = u.buffs.some((b) => b.dStrong > 0 || b.speedMul > 1);
       v.debuffed = u.buffs.some((b) => b.dStrong < 0 || b.speedMul < 1);
     }
