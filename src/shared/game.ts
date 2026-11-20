@@ -76,7 +76,6 @@ export interface Unit {
   ambush: boolean;
   stealthT: number; // >0: 隠密になれない残り時間
   hidden: boolean;
-  runDist: number;
   charging: boolean;
   stillT: number;
   runShootT: number;
@@ -98,6 +97,8 @@ export interface Unit {
   stratUsed: boolean;
   stratCd: number;
   lastSpeed: number;
+  /** 騎兵の現在速度(加速で上昇する) */
+  vel: number;
 }
 
 interface Fence {
@@ -162,7 +163,6 @@ export function createGame(deckA: DeckInfo, deckB: DeckInfo): Game {
         ambush: card.skills.includes("伏"),
         stealthT: 0,
         hidden: false,
-        runDist: 0,
         charging: false,
         stillT: 0,
         runShootT: 0,
@@ -184,6 +184,7 @@ export function createGame(deckA: DeckInfo, deckB: DeckInfo): Game {
         stratUsed: false,
         stratCd: 0,
         lastSpeed: 0,
+        vel: 0,
       };
       u.hidden = u.ambush;
       units.push(u);
@@ -337,7 +338,7 @@ export function cmdAction(g: Game, p: PlayerIdx, slot: number): string | null {
         knockback(u, e, C.SLASH_KNOCKBACK);
         if (e.charging) {
           e.charging = false;
-          e.runDist = 0;
+          e.vel = 0;
           e.slowT = C.SLASH_SLOW_T;
           e.slowF = C.SLASH_SLOW_F;
         }
@@ -489,7 +490,7 @@ export function tick(g: Game, dt: number = C.DT) {
     else if (u.mode === "field" && cardInCastle && own) {
       u.mode = "castle";
       u.charging = false;
-      u.runDist = 0;
+      u.vel = 0;
       u.siege = 0;
       if (u.card.skills.includes("伏")) u.ambush = true;
     }
@@ -542,7 +543,7 @@ function retire(g: Game, u: Unit) {
   const base = C.RESPAWN_BASE + C.RESPAWN_PER_COST * u.card.cost;
   u.respawn = base * (has(u, "活") ? C.RESPAWN_SKILL_MUL : 1);
   u.charging = false;
-  u.runDist = 0;
+  u.vel = 0;
   u.siege = 0;
   u.buffs = [];
   u.hidden = false;
@@ -581,6 +582,16 @@ function stepUnit(g: Game, u: Unit, dt: number, contacts: Map<number, number[]>)
   const dy = u.ty - u.y;
   const d = Math.hypot(dx, dy);
   let moved = 0;
+  if (u.card.unit === "騎兵") {
+    // 騎兵は初速から加速して最高速度に達する。止まる・向きが大きく変わると速度を失う
+    if (d > 1.5 && u.mode === "field") {
+      const cos = u.fx * (dx / d) + u.fy * (dy / d);
+      if (u.vel > 0 && cos < C.CAV_TURN_KEEP) u.vel *= Math.max(0.3, cos);
+      u.vel = Math.max(u.vel, C.BASE_SPEED["騎兵"] * C.CAV_INIT_SPEED_RATIO);
+      u.vel = Math.min(speed, u.vel + C.CAV_ACCEL * dt);
+      speed = u.vel;
+    } else u.vel = 0;
+  }
   if (d > 1.5) {
     const step = Math.min(d, speed * dt);
     let nx = u.x + (dx / d) * step;
@@ -597,9 +608,10 @@ function stepUnit(g: Game, u: Unit, dt: number, contacts: Map<number, number[]>)
     if (blocked) {
       nx = u.x;
       ny = u.y;
+      u.vel = 0;
       if (u.charging) {
         u.charging = false;
-        u.runDist = 0;
+        u.vel = 0;
       }
     }
     moved = Math.hypot(nx - u.x, ny - u.y);
@@ -610,17 +622,14 @@ function stepUnit(g: Game, u: Unit, dt: number, contacts: Map<number, number[]>)
   }
   u.lastSpeed = moved / dt;
 
-  // 騎兵の突撃可能状態
+  // 騎兵の突撃可能状態: 速度が突撃発動速度に達したら移行(突撃オーラ)。速度が落ちるか乱戦で解除
   if (u.card.unit === "騎兵" && u.mode === "field") {
-    const base = C.BASE_SPEED["騎兵"] * 0.85;
+    const trigger = C.BASE_SPEED["騎兵"] * C.CHARGE_TRIGGER_RATIO;
     if (!u.charging) {
-      if (u.lastSpeed >= base && !u.melee) {
-        u.runDist += moved;
-        if (u.runDist >= C.CHARGE_DIST) u.charging = true;
-      } else if (u.lastSpeed < base * 0.5) u.runDist = 0;
-    } else if (u.lastSpeed < C.BASE_SPEED["騎兵"] * 0.4 || u.melee) {
+      if (u.vel >= trigger && !u.melee) u.charging = true;
+    } else if (u.vel < C.BASE_SPEED["騎兵"] * C.CHARGE_KEEP_RATIO || u.melee) {
       u.charging = false;
-      u.runDist = 0;
+      u.vel = Math.min(u.vel, trigger * 0.5);
     }
   }
 
@@ -674,7 +683,7 @@ function engage(g: Game, a: Unit, b: Unit, dt: number) {
       damage(g, y, C.CHARGE_DMG_BASE + strongOf(g, x) * C.CHARGE_DMG_PER_STRONG, "action");
       emit(g, { k: "charge", x: y.x, y: y.y, p: x.p });
       x.charging = false;
-      x.runDist = 0;
+      x.vel = 0;
     }
   }
 
@@ -708,7 +717,7 @@ function updatePikes(g: Game, dt: number) {
         u.cdIntercept = C.INTERCEPT_CD;
         damage(g, e, C.INTERCEPT_DMG_BASE + strongOf(g, u) * C.INTERCEPT_DMG_PER_STRONG, "action");
         e.charging = false;
-        e.runDist = 0;
+        e.vel = 0;
         e.slowT = C.INTERCEPT_SLOW_T;
         e.slowF = C.INTERCEPT_SLOW_F;
         emit(g, { k: "intercept", x: e.x, y: e.y, p: u.p });
@@ -786,7 +795,7 @@ function updateSiege(g: Game, dt: number) {
     u.hidden = false;
     u.stealthT = C.STEALTH_RECOVER_T;
     u.charging = false;
-    u.runDist = 0;
+    u.vel = 0;
     u.siege += dt;
     const need = clamp(C.SIEGE_NEED_MAX - intelOf(g, u) * C.SIEGE_NEED_PER_INTEL, C.SIEGE_NEED_MIN, C.SIEGE_NEED_MAX);
     if (u.siege >= need) {

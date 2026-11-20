@@ -52,7 +52,12 @@ export const MELEE_K = 1.4; // 乱戦: 武力 × K  /s
 export const MELEE_SLOW = 0.3;
 
 // 騎兵
-export const CHARGE_DIST = 150;
+// 加速度・突撃発動速度は仮値(イシュー#1: 数値は別途定義)
+export const CAV_INIT_SPEED_RATIO = 0.2; // 移動開始時の初速(基本速度比)
+export const CAV_ACCEL = 10; // 加速度(px/s^2)
+export const CHARGE_TRIGGER_RATIO = 0.85; // 突撃発動速度(基本速度比)。これ以上で突撃可能状態
+export const CHARGE_KEEP_RATIO = 0.6; // 突撃可能状態を保てる下限(基本速度比)。これを下回ると解除
+export const CAV_TURN_KEEP = 0.9; // 進行方向が大きく変わると速度が落ちる(cos がこれ未満のとき)
 export const CHARGE_SPEED_MUL = 1.35;
 export const CHARGE_DMG_BASE = 22;
 export const CHARGE_DMG_PER_STRONG = 2.2;

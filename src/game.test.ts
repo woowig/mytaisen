@@ -209,6 +209,43 @@ describe("シミュレーション", () => {
     expect(a.hp).toBeLessThan(a.maxHp);
   });
 
+  test("騎兵は加速して徐々に速くなり、突撃発動速度に達して突撃可能になる(イシュー#1)", () => {
+    const cav = pick((c) => c.unit === "騎兵" && c.cost === 1 && c.skills.length === 0);
+    const g = createGame(mk([cav.id]), mk([ofType("槍兵").id]));
+    const a = unitOf(g, 0, 0)!;
+    cmdMove(g, 0, 0, 300, 100);
+    const speeds: number[] = [];
+    let chargeAt = -1;
+    let velAtCharge = 0;
+    for (let i = 0; i < 20 * 20; i++) {
+      tick(g);
+      speeds.push(a.lastSpeed);
+      if (a.charging && chargeAt < 0) {
+        chargeAt = i;
+        velAtCharge = a.vel;
+      }
+    }
+    // 開始直後は最高速でなく、その後に速くなる
+    expect(speeds[2]!).toBeLessThan(C.BASE_SPEED["騎兵"] * 0.5);
+    expect(speeds[40]!).toBeGreaterThan(speeds[2]!);
+    // 加速時間が必要なので、移動開始直後には突撃可能にならない
+    expect(chargeAt).toBeGreaterThan(20 * 2);
+    expect(velAtCharge).toBeGreaterThanOrEqual(C.BASE_SPEED["騎兵"] * C.CHARGE_TRIGGER_RATIO);
+  });
+
+  test("騎兵は止まると速度を失い、突撃可能状態が解除される", () => {
+    const cav = pick((c) => c.unit === "騎兵" && c.cost === 1 && c.skills.length === 0);
+    const g = createGame(mk([cav.id]), mk([ofType("槍兵").id]));
+    const a = unitOf(g, 0, 0)!;
+    cmdMove(g, 0, 0, 300, 100);
+    run(g, 8);
+    expect(a.charging).toBe(true);
+    cmdMove(g, 0, 0, a.x, a.y);
+    run(g, 1);
+    expect(a.vel).toBe(0);
+    expect(a.charging).toBe(false);
+  });
+
   test("鉄砲隊の射撃は射線上に当たりクールダウンする", () => {
     const gun = pick((c) => c.unit === "鉄砲隊" && c.cost === 1 && c.skills.length === 0);
     const g = createGame(mk([gun.id]), mk([ofType("槍兵").id]));
