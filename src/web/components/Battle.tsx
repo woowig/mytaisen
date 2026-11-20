@@ -9,6 +9,8 @@ const CARD_W = 52;
 const CARD_H = 74;
 // カード中心がこれより上には行かない(カード上端が敵の城壁に接する位置)
 const CARD_MIN_Y = C.CASTLE_ZONE_H + CARD_H / 2;
+// カード上端が壁にほぼ接していれば壁への攻撃指示にする(余裕分)
+const WALL_SNAP = 14;
 const ME_COLOR = "#4aa3ff";
 const EN_COLOR = "#ff5a5a";
 
@@ -437,7 +439,7 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
   };
   const sendMove = (slot: number, vx: number, vy: number) => {
     // カード上端が城壁に接したら、城壁(城門)への攻撃になる
-    const [x, y] = toView(vx, vy <= CARD_MIN_Y + 0.5 ? C.CASTLE_ZONE_H : vy); // 反転は自己逆変換
+    const [x, y] = toView(vx, vy <= CARD_MIN_Y + WALL_SNAP ? C.CASTLE_ZONE_H : vy); // 反転は自己逆変換
     send({ type: "move", slot, x, y });
   };
   const onDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
