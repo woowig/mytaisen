@@ -459,6 +459,10 @@ describe("シミュレーション", () => {
     run(g, C.THRUST_CD - (C.THRUST_T + 0.2) - 0.05 + 0.1);
     expect(a.thrustT).toBeGreaterThan(0); // 明けたら再発動
     expect(cmdAction(g, 0, 0)).toBe("このカードには固有アクションがありません"); // 手動の槍撃はない
+    a.tx = a.x;
+    a.ty = a.y; // 止まる
+    run(g, 0.1);
+    expect(a.thrustT).toBe(0); // 止まったら槍撃は終了する
   });
 
   test("槍撃は乱戦中・攻城中・伏兵中には自動発動しない", () => {

@@ -666,6 +666,8 @@ function engage(g: Game, a: Unit, b: Unit, dt: number) {
 function updatePikes(g: Game, dt: number) {
   const interceptSpeed = C.BASE_SPEED["騎兵"] * C.CHARGE_TRIGGER_RATIO; // 騎兵の突撃発動速度
   for (const u of g.units) {
+    // 槍撃は移動のアクション: 止まったら終了する
+    if (u.thrustT > 0 && u.lastSpeed <= 0) u.thrustT = 0;
     // 槍撃: 移動している間、クールダウンが明けるたびに自動で発動する
     if (u.card.unit === "槍兵" && pikeLen(u) > 0 && !u.ambush && u.cdAction <= 0 && u.lastSpeed > 0) {
       u.thrustT = C.THRUST_T;

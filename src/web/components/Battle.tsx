@@ -46,6 +46,8 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
   const disp = useRef(new Map<string, { x: number; y: number }>());
   // 表示位置から求めた部隊ごとの移動速度(px/s、なめらかにしたもの)。槍の移動中エフェクトの判定に使う
   const speed = useRef(new Map<string, number>());
+  // 槍の矢印の濃さ(0〜1)。移動中・槍撃中は1、止まると薄く消える
+  const pikeAlpha = useRef(new Map<string, number>());
   // 突撃中の騎兵が走った跡の砂煙(盤面座標。部隊についていかず、その場で広がって消える)
   type Dust = { x: number; y: number; vx: number; vy: number; born: number; life: number; r0: number; tone: number };
   const dust = useRef<Dust[]>([]);
@@ -102,7 +104,10 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
           d.y += (u.y - d.y) * k;
           const v = Math.hypot(d.x - ox, d.y - oy) / Math.max(dt, 0.001);
           const prev = speed.current.get(key) ?? 0;
-          speed.current.set(key, prev + (v - prev) * (1 - Math.exp(-dt * 10)));
+          const sp = prev + (v - prev) * (1 - Math.exp(-dt * 10));
+          speed.current.set(key, sp);
+          const a = pikeAlpha.current.get(key) ?? 0;
+          pikeAlpha.current.set(key, a + ((u.thrust || sp > PIKE_MOVE_SPEED ? 1 : 0) - a) * (1 - Math.exp(-dt * 8)));
         }
       }
       updateDust(s, now);
@@ -444,6 +449,10 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
     const edge = Math.acos(C.PIKE_COS) * 0.85;
     const angles = [-edge, -edge / 3, edge / 3, edge];
     // 移動中と槍撃の発動中は、4本が少しずつ位相をずらして突き出す(長さの基準は変えない)
+    const fade = pikeAlpha.current.get(`${u.p}:${u.slot}`) ?? 0;
+    if (fade < 0.02) return; // 止まったら槍の矢印は消える
+    ctx.save();
+    ctx.globalAlpha *= fade;
     const moving = u.thrust || (speed.current.get(`${u.p}:${u.slot}`) ?? 0) > PIKE_MOVE_SPEED;
     for (let i = 0; i < 4; i++) {
       const phase = (now / PIKE_STAB_MS + i * 0.23) % 1;
@@ -481,6 +490,7 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
         ctx.stroke();
       }
     }
+    ctx.restore();
   }
 
   function drawUnit(ctx: CanvasRenderingContext2D, u: UnitView, now: number) {
