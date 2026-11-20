@@ -246,6 +246,88 @@ describe("シミュレーション", () => {
     expect(a.charging).toBe(false);
   });
 
+  test("槍撃は移動方向の前方の角度内だけに当たる", () => {
+    const pike = pick((c) => c.unit === "槍兵" && c.cost === 1 && c.skills.length === 0);
+    const g = createGame(mk([pike.id]), mk([ofType("弓兵").id, ofType("弓兵").id].slice(0, 1)));
+    const a = unitOf(g, 0, 0)!;
+    const e = unitOf(g, 1, 0)!;
+    a.mode = "field";
+    a.x = 300;
+    a.y = 500;
+    a.tx = a.x;
+    a.ty = a.y;
+    a.fx = 0;
+    a.fy = -1; // 上向きに槍
+    e.mode = "field";
+    e.tx = e.x = 300 + 50; // 真横
+    e.ty = e.y = 500;
+    e.hp = e.maxHp;
+    e.hidden = false;
+    e.ambush = false;
+    tick(g);
+    expect(e.hp).toBe(e.maxHp); // 横は当たらない
+    e.tx = e.x = 300;
+    e.ty = e.y = 500 - 50; // 前方
+    tick(g);
+    expect(e.hp).toBeLessThan(e.maxHp);
+  });
+
+  test("槍撃が騎兵に当たると、槍兵と同等の速度まで落ちる", () => {
+    const cav = pick((c) => c.unit === "騎兵" && c.cost === 1 && c.skills.length === 0);
+    const pike = pick((c) => c.unit === "槍兵" && c.cost === 1 && c.skills.length === 0);
+    const g = createGame(mk([pike.id]), mk([cav.id]));
+    const a = unitOf(g, 0, 0)!;
+    const e = unitOf(g, 1, 0)!;
+    a.mode = "field";
+    a.x = 300;
+    a.y = 500;
+    a.tx = a.x;
+    a.ty = a.y;
+    a.fx = 0;
+    a.fy = -1;
+    e.mode = "field";
+    e.x = 300;
+    e.y = 450;
+    e.tx = 300;
+    e.ty = 480; // 槍兵へ向かって走る(向かい合うが、速度は突撃発動速度未満なので迎撃にならない)
+    e.vel = C.BASE_SPEED["騎兵"] * 0.6;
+    e.fx = 0;
+    e.fy = 1;
+    e.hidden = false;
+    e.ambush = false;
+    tick(g);
+    expect(e.vel).toBeLessThanOrEqual(C.BASE_SPEED["槍兵"]);
+    expect(e.charging).toBe(false);
+  });
+
+  test("迎撃は騎兵以外でも、突撃発動速度以上で向かい合って接近すれば成立する", () => {
+    const pike = pick((c) => c.unit === "槍兵" && c.cost === 1 && c.skills.length === 0);
+    const sword = pick((c) => c.unit === "剣豪" && c.cost === 1 && c.skills.length === 0);
+    const g = createGame(mk([pike.id]), mk([sword.id]));
+    const a = unitOf(g, 0, 0)!;
+    const e = unitOf(g, 1, 0)!;
+    a.mode = "field";
+    a.x = 300;
+    a.y = 500;
+    a.tx = a.x;
+    a.ty = a.y;
+    a.fx = 0;
+    a.fy = -1;
+    e.mode = "field";
+    e.x = 300;
+    e.y = 300;
+    e.tx = 300;
+    e.ty = 520; // 槍兵に向かって走る(剣豪の基本速度45は突撃発動速度44.2以上)
+    e.hidden = false;
+    e.ambush = false;
+    let intercepted = false;
+    for (let i = 0; i < 20 * 15 && !intercepted; i++) {
+      tick(g);
+      if (g.fx.some((f) => f.k === "intercept")) intercepted = true;
+    }
+    expect(intercepted).toBe(true);
+  });
+
   test("鉄砲隊の射撃は射線上に当たりクールダウンする", () => {
     const gun = pick((c) => c.unit === "鉄砲隊" && c.cost === 1 && c.skills.length === 0);
     const g = createGame(mk([gun.id]), mk([ofType("槍兵").id]));
