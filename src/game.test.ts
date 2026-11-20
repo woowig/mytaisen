@@ -391,6 +391,53 @@ describe("シミュレーション", () => {
     expect(a.stillT).toBe(gauge);
   });
 
+  test("剣豪の斬撃ゲージは時間で貯まり、満タンのときだけ斬撃できる。斬撃後は空に戻る", () => {
+    const sword = pick((c) => c.unit === "剣豪" && c.cost === 1 && c.skills.length === 0);
+    const g = createGame(mk([sword.id]), mk([ofType("槍兵").id]));
+    const a = unitOf(g, 0, 0)!;
+    const e = unitOf(g, 1, 0)!;
+    a.mode = "field";
+    a.x = a.tx = 300;
+    a.y = a.ty = 500;
+    e.mode = "field";
+    e.hp = e.maxHp;
+    e.hidden = false;
+    e.ambush = false;
+    e.x = e.tx = 300 + 60;
+    e.y = e.ty = 500; // 範囲内
+    expect(snapshotFor(g, 0).units.find((u) => u.p === 0)!.gauge).toBe(0);
+    expect(cmdAction(g, 0, 0)).toBe("斬撃ゲージが溜まっていません");
+    run(g, C.SLASH_CD / 2);
+    const half = snapshotFor(g, 0).units.find((u) => u.p === 0)!.gauge!;
+    expect(half).toBeGreaterThan(0.4);
+    expect(half).toBeLessThan(0.6);
+    expect(cmdAction(g, 0, 0)).not.toBeNull(); // まだ満タンではない
+    run(g, C.SLASH_CD / 2 + 0.2);
+    const hp = e.hp;
+    expect(cmdAction(g, 0, 0)).toBeNull(); // 満タンで成立
+    expect(e.hp).toBeLessThan(hp);
+    expect(snapshotFor(g, 0).units.find((u) => u.p === 0)!.gauge).toBe(0); // リセット
+  });
+
+  test("斬撃は範囲内の敵すべてに当たり、範囲外には当たらない", () => {
+    const sword = pick((c) => c.unit === "剣豪" && c.cost === 1 && c.skills.length === 0);
+    const g = createGame(mk([sword.id]), mk([ofType("槍兵").id, ofType("槍兵").id].slice(0, 1)));
+    const a = unitOf(g, 0, 0)!;
+    const e = unitOf(g, 1, 0)!;
+    a.mode = "field";
+    a.x = a.tx = 300;
+    a.y = a.ty = 500;
+    a.cdAction = 0;
+    e.mode = "field";
+    e.hp = e.maxHp;
+    e.hidden = false;
+    e.ambush = false;
+    e.x = e.tx = 300 + C.SLASH_RANGE + 40; // 範囲外
+    e.y = e.ty = 500;
+    expect(cmdAction(g, 0, 0)).toBe("対象がいません");
+    expect(e.hp).toBe(e.maxHp);
+  });
+
   test("鉄砲隊の射撃は射線上に当たりクールダウンする", () => {
     const gun = pick((c) => c.unit === "鉄砲隊" && c.cost === 1 && c.skills.length === 0);
     const g = createGame(mk([gun.id]), mk([ofType("槍兵").id]));
