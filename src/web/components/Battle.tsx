@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, type MutableRefObject } from "react";
 import { CARD_BY_ID } from "../../shared/cards.ts";
 import * as C from "../../shared/constants.ts";
 import type { ClientMsg, Fx, PlayerIdx, Snapshot, UnitView } from "../../shared/types.ts";
+import { ShakeDetector, SWING } from "../shake.ts";
 import { artImage, COLOR_HEX, UNIT_GLYPH } from "../art.ts";
 import { CardArt } from "./CardArt.tsx";
 
@@ -12,7 +13,7 @@ const CARD_MIN_Y = C.CASTLE_ZONE_H + CARD_H / 2;
 // カード上端が壁にほぼ接していれば壁への攻撃指示にする(余裕分)
 const WALL_SNAP = 14;
 // 兵種ごとのゲージ名(スナップショットの gauge を表示する)
-const GAUGE_LABEL: Record<string, string> = { 弓兵: "掃射" };
+const GAUGE_LABEL: Record<string, string> = { 弓兵: "掃射", 剣豪: "斬撃" };
 const ME_COLOR = "#4aa3ff";
 const EN_COLOR = "#ff5a5a";
 
@@ -37,6 +38,8 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
   const fieldCv = useRef<HTMLCanvasElement>(null);
   const disp = useRef(new Map<string, { x: number; y: number }>());
   const fxLive = useRef<FxLive[]>([]);
+  // カードを振る操作(剣豪の斬撃)の検出
+  const swing = useRef(new ShakeDetector(SWING));
   const drag = useRef<{ slot: number; dx: number; dy: number; x: number; y: number; lastSent: number } | null>(null);
   const selRef = useRef(selected);
   selRef.current = selected;
@@ -459,6 +462,7 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
       setSelected(hit.slot);
       selRef.current = hit.slot;
       drag.current = { slot: hit.slot, dx: px - cx, dy: py - cy, x: cx, y: cy, lastSent: 0 };
+      swing.current.reset();
     } else if (selRef.current >= 0) {
       // 空きをクリックで選択中カードを移動指示
       sendMove(selRef.current, px, py);
@@ -471,6 +475,9 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
     d.x = Math.min(C.FIELD_W, Math.max(0, px - d.dx));
     d.y = Math.min(C.FIELD_H, Math.max(CARD_MIN_Y, py - d.dy));
     const now = performance.now();
+    // 剣豪はカードを振ると斬撃(ゲージが満タンのときだけサーバーが受け付ける)
+    const du = snapRef.current?.units.find((u) => u.p === you && u.slot === d.slot);
+    if (du && CARD_BY_ID.get(du.cardId)?.unit === "剣豪" && swing.current.push(now, px, py)) send({ type: "action", slot: d.slot });
     if (now - d.lastSent > 50) {
       d.lastSent = now;
       sendMove(d.slot, d.x, d.y);
@@ -583,7 +590,7 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
               {selCard?.unit === "槍兵" ? "槍撃" : selCard?.unit === "剣豪" ? "斬撃" : selCard?.unit === "鉄砲隊" ? "射撃" : "アクション"} [Space]
               {sel && (sel.actionCd ?? 0) > 0 ? ` ${sel.actionCd}s` : ""}
             </button>
-            <div className="muted small">騎兵は走り続けると突撃、弓兵は止まると掃射ゲージが貯まり、満タンで動き出すと掃射します。</div>
+            <div className="muted small">騎兵は走り続けると突撃、弓兵は止まると掃射ゲージが貯まり、満タンで動き出すと掃射します。剣豪は斬撃ゲージが満タンのときにカードを振る(短く素早く往復)と斬撃します。</div>
           </div>
         </aside>
       </div>

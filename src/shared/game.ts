@@ -167,7 +167,7 @@ export function createGame(deckA: DeckInfo, deckB: DeckInfo): Game {
         melee: false,
         sieging: false,
         siege: 0,
-        cdAction: 0,
+        cdAction: card.unit === "剣豪" ? C.SLASH_CD : 0, // 斬撃ゲージは空から貯める
         cdBow: 0,
         cdIntercept: 0,
         slowT: 0,
@@ -318,7 +318,7 @@ export function cmdAction(g: Game, p: PlayerIdx, slot: number): string | null {
   if (u.mode !== "field") return "出城していません";
   if (u.melee || u.sieging) return "乱戦・攻城中は行えません";
   if (u.ambush) return "伏兵中は行えません";
-  if (u.cdAction > 0) return "クールダウン中です";
+  if (u.cdAction > 0) return u.card.unit === "剣豪" ? "斬撃ゲージが溜まっていません" : "クールダウン中です";
   switch (u.card.unit) {
     case "槍兵":
       u.thrustT = C.THRUST_T;
@@ -562,6 +562,7 @@ function respawn(g: Game, u: Unit) {
   u.ambush = has(u, "伏");
   u.hidden = u.ambush;
   u.kiPool = 0;
+  if (u.card.unit === "剣豪") u.cdAction = C.SLASH_CD;
   if (has(u, "柵")) addFence(g.fences, u);
   emit(g, { k: "reveal", x: u.x, y: u.y, p: u.p });
 }
@@ -858,6 +859,7 @@ function updateRegen(g: Game, dt: number) {
 /** 兵種ごとのゲージ(0〜1)。画面に表示する */
 function gaugeOf(u: Unit): number {
   if (u.card.unit === "弓兵") return u.stillT / C.BOW_SWEEP_FILL_T;
+  if (u.card.unit === "剣豪") return 1 - u.cdAction / C.SLASH_CD;
   return 0;
 }
 
