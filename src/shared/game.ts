@@ -855,7 +855,7 @@ function updateFences(g: Game, dt: number) {
   for (const f of g.fences) {
     let touching = 0;
     for (const u of g.units) {
-      if (u.p === f.p || u.mode !== "field") continue;
+      if (u.p === f.p || u.mode !== "field" || u.hp <= 0) continue;
       if (u.x > f.x - m && u.x < f.x + f.w + m && u.y > f.y - m && u.y < f.y + f.h + m) touching++;
     }
     f.breaking = touching > 0;
