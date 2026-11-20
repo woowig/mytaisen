@@ -11,6 +11,8 @@ const CARD_H = 74;
 const CARD_MIN_Y = C.CASTLE_ZONE_H + CARD_H / 2;
 // カード上端が壁にほぼ接していれば壁への攻撃指示にする(余裕分)
 const WALL_SNAP = 14;
+// 兵種ごとのゲージ名(スナップショットの gauge を表示する)
+const GAUGE_LABEL: Record<string, string> = { 弓兵: "掃射" };
 const ME_COLOR = "#4aa3ff";
 const EN_COLOR = "#ff5a5a";
 
@@ -551,6 +553,14 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
                     <div className="bar">
                       <i style={{ width: `${(100 * u.hp) / u.maxHp}%` }} />
                     </div>
+                    {GAUGE_LABEL[c.unit] && u.mode !== "dead" && (
+                      <div className="gauge-row" title={GAUGE_LABEL[c.unit]}>
+                        <span>{GAUGE_LABEL[c.unit]}</span>
+                        <div className="bar gauge">
+                          <i className={(u.gauge ?? 0) >= 1 ? "full" : ""} style={{ width: `${100 * Math.min(1, u.gauge ?? 0)}%` }} />
+                        </div>
+                      </div>
+                    )}
                     <div className="muted">
                       {u.mode === "dead" ? `復活まで ${Math.ceil(u.respawn ?? 0)}s` : u.mode === "castle" ? "城内" : "出城中"}
                       {c.skills.length ? ` / ${c.skills.join("")}` : ""}
@@ -573,7 +583,7 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
               {selCard?.unit === "槍兵" ? "槍撃" : selCard?.unit === "剣豪" ? "斬撃" : selCard?.unit === "鉄砲隊" ? "射撃" : "アクション"} [Space]
               {sel && (sel.actionCd ?? 0) > 0 ? ` ${sel.actionCd}s` : ""}
             </button>
-            <div className="muted small">騎兵は走り続けると突撃、弓兵は止まると射撃します。</div>
+            <div className="muted small">騎兵は走り続けると突撃、弓兵は止まると掃射ゲージが貯まり、満タンで動き出すと掃射します。</div>
           </div>
         </aside>
       </div>

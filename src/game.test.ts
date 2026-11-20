@@ -328,6 +328,69 @@ describe("シミュレーション", () => {
     expect(intercepted).toBe(true);
   });
 
+  const bowSetup = () => {
+    const bow = pick((c) => c.unit === "弓兵" && c.cost === 1 && c.skills.length === 0);
+    const g = createGame(mk([bow.id]), mk([ofType("槍兵").id]));
+    const a = unitOf(g, 0, 0)!;
+    const e = unitOf(g, 1, 0)!;
+    a.mode = "field";
+    a.x = a.tx = 300;
+    a.y = a.ty = 600;
+    a.fx = 0;
+    a.fy = -1; // 上向き
+    e.mode = "field";
+    e.hp = e.maxHp;
+    e.hidden = false;
+    e.ambush = false;
+    e.x = e.tx = 300;
+    e.y = e.ty = 450; // 前方150(射程内)
+    return { g, a, e };
+  };
+
+  test("弓兵は移動方向の前方・射程内の敵だけを撃つ", () => {
+    const { g, a, e } = bowSetup();
+    tick(g);
+    expect(e.hp).toBeLessThan(e.maxHp);
+    e.hp = e.maxHp;
+    e.x = e.tx = 300;
+    e.y = e.ty = 750; // 真後ろ
+    a.cdBow = 0;
+    tick(g);
+    expect(e.hp).toBe(e.maxHp);
+    e.x = e.tx = 300;
+    e.y = e.ty = 600 - C.BOW_RANGE - 50; // 射程外
+    a.cdBow = 0;
+    tick(g);
+    expect(e.hp).toBe(e.maxHp);
+  });
+
+  test("弓兵は停止中に掃射ゲージが貯まり、満タンで動き出すと掃射する", () => {
+    const { g, a, e } = bowSetup();
+    e.maxHp = e.hp = 10000;
+    run(g, C.BOW_SWEEP_FILL_T + 0.5);
+    expect(a.stillT).toBeGreaterThanOrEqual(C.BOW_SWEEP_FILL_T);
+    const before = e.hp;
+    a.tx = 300;
+    a.ty = 560; // 移動を開始(敵は前方のまま)
+    a.cdBow = 99; // 通常攻撃を止めて、掃射だけを見る
+    run(g, 0.3);
+    expect(before - e.hp).toBeGreaterThan(0); // 掃射の追加ダメージ
+    expect(a.stillT).toBe(0); // 掃射後はゲージが空になる
+  });
+
+  test("弓兵の掃射ゲージは、移動しても保持される(満タン前)", () => {
+    const { g, a, e } = bowSetup();
+    e.maxHp = e.hp = 10000;
+    e.y = e.ty = 100; // 射程外にして、掃射が起きないようにする
+    run(g, 1.5);
+    const gauge = a.stillT;
+    expect(gauge).toBeGreaterThan(1);
+    a.tx = 200;
+    a.ty = 600;
+    run(g, 1);
+    expect(a.stillT).toBe(gauge);
+  });
+
   test("鉄砲隊の射撃は射線上に当たりクールダウンする", () => {
     const gun = pick((c) => c.unit === "鉄砲隊" && c.cost === 1 && c.skills.length === 0);
     const g = createGame(mk([gun.id]), mk([ofType("槍兵").id]));
