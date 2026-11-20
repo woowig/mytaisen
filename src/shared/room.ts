@@ -26,11 +26,23 @@ export class RoomCore {
   }
 
   /** 入室。失敗時はエラーメッセージを返す */
-  join(peer: Peer, deck: unknown): string | null {
+  /** solo=true: 相手なしの練習。相手側は動かない無人の陣(城内にいて見えない) */
+  join(peer: Peer, deck: unknown, solo = false): string | null {
     if (peer.room) return "すでに部屋に入っています";
     const v = validateDeck(deck);
     if (!v.ok) return v.error;
     if (this.game) return "すでに対戦中です";
+    if (solo) {
+      if (this.players[0] || this.players[1]) return "部屋が満員です";
+      this.players[0] = peer;
+      this.decks = [v.info, v.info];
+      this.deckIds = [(deck as string[]).slice(), (deck as string[]).slice()];
+      peer.room = this;
+      peer.idx = 0;
+      peer.send({ type: "room", room: this.code, you: 0, waiting: false });
+      this.start();
+      return null;
+    }
     const idx: PlayerIdx = this.players[0] ? 1 : 0;
     if (this.players[idx]) return "部屋が満員です";
     this.players[idx] = peer;

@@ -87,7 +87,7 @@ export interface Snapshot {
 }
 
 export type ClientMsg =
-  | { type: "create"; deck: string[] }
+  | { type: "create"; deck: string[]; solo?: boolean }
   | { type: "join"; room: string; deck: string[] }
   | { type: "move"; slot: number; x: number; y: number }
   | { type: "strat"; slot: number }

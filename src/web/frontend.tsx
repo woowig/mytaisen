@@ -156,6 +156,9 @@ function App() {
               <button className="btn primary" disabled={!v.ok} onClick={() => connect({ type: "create", deck })}>
                 部屋を作る
               </button>
+              <button className="btn" disabled={!v.ok} onClick={() => connect({ type: "create", deck, solo: true })}>
+                ひとりで練習
+              </button>
               <span className="muted">または</span>
               <input className="code" placeholder="部屋コード" maxLength={4} value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase())} />
               <button className="btn primary" disabled={!v.ok || joinCode.length !== 4} onClick={() => connect({ type: "join", room: joinCode, deck })}>

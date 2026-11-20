@@ -53,7 +53,7 @@ export function startServer(opts: { port?: number; hostname?: string } = {}) {
         const code = newCode();
         const room = new RoomCore(code, () => rooms.delete(code));
         rooms.set(code, room);
-        const err = room.join(peer, msg.deck);
+        const err = room.join(peer, msg.deck, msg.solo === true);
         if (err) {
           rooms.delete(code);
           send(ws, { type: "error", message: err });

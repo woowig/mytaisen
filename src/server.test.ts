@@ -109,3 +109,19 @@ test("同じ部屋に3人目は入れない", async () => {
   expect(e.message).toContain("対戦中");
   for (const x of [a, b, c]) x.ws.close();
 });
+
+test("ひとりで練習: 相手なしで開始し、自分の部隊だけが見える", async () => {
+  const a = client();
+  await a.opened;
+  a.send({ type: "create", deck: deckA, solo: true });
+  const room = await a.wait("room");
+  expect(room.waiting).toBe(false);
+  await a.wait("start");
+  const snap = await a.wait("snapshot");
+  expect(snap.s.units.length).toBe(deckA.length);
+  expect(snap.s.units.every((u) => u.p === 0)).toBe(true);
+  a.send({ type: "move", slot: 0, x: 300, y: 500 });
+  const moved = await a.wait("snapshot", (m) => m.s.units.some((u) => u.slot === 0 && u.mode === "field"));
+  expect(moved.s.units.every((u) => u.p === 0)).toBe(true);
+  a.ws.close();
+});

@@ -61,7 +61,7 @@ export class GameRoom extends DurableObject<Env> {
             // 試合終了後、少し待ってから接続を閉じて DO を解放する
             setTimeout(() => this.sockets.forEach((s) => s.close(1000, "done")), 1500);
           });
-          const err = this.core.join(peer, msg.deck);
+          const err = this.core.join(peer, msg.deck, msg.solo === true);
           if (err) {
             this.core = null;
             send({ type: "error", message: err });
