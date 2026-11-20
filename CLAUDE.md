@@ -111,3 +111,9 @@ bun --hot ./index.ts
 ```
 
 For more information, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
+
+## ドキュメント
+
+- ゲーム仕様は `docs/game-rules.md` に書く。ゲームのルール・数値・挙動を変えたら、同じ変更の中でこのファイルも更新する。
+- `docs/game-rules.md` には**今の仕様だけ**を書く。変更の理由・経緯・以前との比較・イシューやPRの番号は書かない（それらはコミットメッセージやPRに書く）。
+- 数値の正は `src/shared/constants.ts`、ロジックの正は `src/shared/game.ts`。ドキュメントはコードと食い違わせない。
