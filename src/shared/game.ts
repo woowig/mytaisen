@@ -1,5 +1,5 @@
 // 純粋なシミュレーション。サーバーが権威として tick を回す。DOM/ネットワーク非依存。
-import { CARD_BY_ID } from "./cards.ts";
+import { CARD_BY_ID, STRAT_LOCK_SEC_BY_ID, STRAT_USE_LIMIT_BY_ID } from "./cards.ts";
 import * as C from "./constants.ts";
 import type {
   Card,
@@ -92,7 +92,12 @@ export interface Unit {
   buffs: Buff[];
   kiPool: number;
   kiT: number;
-  stratUsed: boolean;
+  /** 計略の効果が終わる時刻(g.t)。0なら効果中ではない */
+  stratEnd: number;
+  /** 次に計略を使える時刻(g.t。効果終了後の再使用待ち時間を含む) */
+  stratReady: number;
+  /** 試合中にあと何回使えるか(制限がなければ Infinity) */
+  stratLeft: number;
   stratCd: number;
   lastSpeed: number;
   /** 騎兵の現在速度(加速で上昇する) */
@@ -178,7 +183,9 @@ export function createGame(deckA: DeckInfo, deckB: DeckInfo): Game {
         buffs: [],
         kiPool: 0,
         kiT: 0,
-        stratUsed: false,
+        stratEnd: 0,
+        stratReady: 0,
+        stratLeft: STRAT_USE_LIMIT_BY_ID.get(card.id) ?? Infinity,
         stratCd: 0,
         lastSpeed: 0,
         vel: 0,
@@ -383,11 +390,16 @@ export function cmdStrat(g: Game, p: PlayerIdx, slot: number): string | null {
   if (u.mode === "dead") return "撤退中です";
   const s = u.card.strat;
   const short = s.categories.includes("短計");
-  if (short ? u.stratCd > 0 : u.stratUsed) return short ? "短計はクールダウン中です" : "計略は使用済みです";
+  if (short) {
+    if (u.stratCd > 0) return "短計はクールダウン中です";
+  } else {
+    if (g.t < u.stratEnd) return "計略の効果中です";
+    if (g.t < u.stratReady) return `計略はあと${Math.ceil(u.stratReady - g.t)}秒使えません`;
+    if (u.stratLeft <= 0) return "計略は使用済みです";
+  }
   if (g.morale[p] < s.mp) return "士気が足りません";
   g.morale[p] -= s.mp;
   if (short) u.stratCd = C.STRAT_SHORT_CD;
-  else u.stratUsed = true;
   u.ambush = false;
   u.hidden = false;
   u.stealthT = C.STEALTH_RECOVER_T;
@@ -395,6 +407,11 @@ export function cmdStrat(g: Game, p: PlayerIdx, slot: number): string | null {
 
   const dur = stratDuration(s.time, intelOf(g, u), short);
   const until = g.t + dur;
+  if (!short) {
+    u.stratEnd = until;
+    u.stratReady = until + (STRAT_LOCK_SEC_BY_ID.get(u.card.id) ?? C.STRAT_LOCK_SEC_DEFAULT);
+    u.stratLeft -= 1;
+  }
   const cats = s.categories;
   let applied = false;
   const team = g.units.filter((o) => o.p === p && o.mode !== "dead");
@@ -514,7 +531,7 @@ export function tick(g: Game, dt: number = C.DT) {
   }
 }
 
-function retire(g: Game, u: Unit) {
+export function retire(g: Game, u: Unit) {
   u.mode = "dead";
   u.hp = 0;
   const base = C.RESPAWN_BASE + C.RESPAWN_PER_COST * u.card.cost;
@@ -523,6 +540,11 @@ function retire(g: Game, u: Unit) {
   u.vel = 0;
   u.siege = 0;
   u.buffs = [];
+  // 撤退で計略の効果は終わる(「撤退するまで」の計略も)
+  if (g.t < u.stratEnd) {
+    u.stratEnd = g.t;
+    u.stratReady = g.t + (STRAT_LOCK_SEC_BY_ID.get(u.card.id) ?? C.STRAT_LOCK_SEC_DEFAULT);
+  }
   u.hidden = false;
   u.lockTarget = -1;
   g.fences = g.fences.filter((f) => f.owner !== u.id);
@@ -536,7 +558,6 @@ function retire(g: Game, u: Unit) {
 function respawn(g: Game, u: Unit) {
   u.mode = "castle";
   u.hp = u.maxHp;
-  u.stratUsed = false;
   u.ambush = has(u, "伏");
   u.hidden = u.ambush;
   u.kiPool = 0;
@@ -926,7 +947,9 @@ export function snapshotFor(g: Game, me: PlayerIdx): Snapshot {
       v.tx = round(u.tx);
       v.ty = round(u.ty);
       v.respawn = round(Math.max(0, u.respawn), 1);
-      v.stratUsed = u.stratUsed;
+      v.stratActive = g.t < u.stratEnd;
+      v.stratLock = g.t < u.stratEnd ? 0 : round(Math.max(0, u.stratReady - g.t), 1);
+      if (Number.isFinite(u.stratLeft)) v.stratLeft = u.stratLeft;
       if (u.sieging) v.siegeDmg = nextSiegeDamage(g, u);
       v.stratCd = round(u.stratCd, 1);
       v.actionCd = round(u.cdAction, 1);
