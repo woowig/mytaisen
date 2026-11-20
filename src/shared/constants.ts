@@ -87,8 +87,8 @@ export const BOW_CD = 1.3;
 export const BOW_DMG_BASE = 4;
 export const BOW_DMG_PER_STRONG = 0.7;
 export const BOW_COS = 0.5; // 攻撃対象を選べる角度(移動方向からのずれ。cos 0.5 は60度)
-export const BOW_SWEEP_FILL_T = 3; // 停止して掃射ゲージが満ちるまでの秒数
-export const BOW_SWEEP_MUL = 0.6; // 掃射のダメージ(通常攻撃1発に対する倍率)
+export const BOW_SWEEP_FILL_T = 3; // 停止して走射ゲージが満ちるまでの秒数
+export const BOW_SWEEP_MUL = 0.6; // 走射のダメージ(通常攻撃1発に対する倍率)
 export const ARROW_SIEGE_BREAK = 0.8; // 攻城ゲージ(秒)
 
 // 剣豪

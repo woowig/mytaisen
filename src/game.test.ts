@@ -364,7 +364,7 @@ describe("シミュレーション", () => {
     expect(e.hp).toBe(e.maxHp);
   });
 
-  test("弓兵は停止中に掃射ゲージが貯まり、満タンで動き出すと掃射する", () => {
+  test("弓兵は停止中に走射ゲージが貯まり、満タンで動き出すと走射する", () => {
     const { g, a, e } = bowSetup();
     e.maxHp = e.hp = 10000;
     run(g, C.BOW_SWEEP_FILL_T + 0.5);
@@ -372,16 +372,16 @@ describe("シミュレーション", () => {
     const before = e.hp;
     a.tx = 300;
     a.ty = 560; // 移動を開始(敵は前方のまま)
-    a.cdBow = 99; // 通常攻撃を止めて、掃射だけを見る
+    a.cdBow = 99; // 通常攻撃を止めて、走射だけを見る
     run(g, 0.3);
-    expect(before - e.hp).toBeGreaterThan(0); // 掃射の追加ダメージ
-    expect(a.stillT).toBe(0); // 掃射後はゲージが空になる
+    expect(before - e.hp).toBeGreaterThan(0); // 走射の追加ダメージ
+    expect(a.stillT).toBe(0); // 走射後はゲージが空になる
   });
 
-  test("弓兵の掃射ゲージは、移動しても保持される(満タン前)", () => {
+  test("弓兵の走射ゲージは、移動しても保持される(満タン前)", () => {
     const { g, a, e } = bowSetup();
     e.maxHp = e.hp = 10000;
-    e.y = e.ty = 100; // 射程外にして、掃射が起きないようにする
+    e.y = e.ty = 100; // 射程外にして、走射が起きないようにする
     run(g, 1.5);
     const gauge = a.stillT;
     expect(gauge).toBeGreaterThan(1);
@@ -483,6 +483,25 @@ describe("シミュレーション", () => {
     tick(g);
     expect(a.melee).toBe(true);
     expect(a.thrustT).toBe(0); // 乱戦中は槍が出ていない
+  });
+
+  test("槍撃は攻城中(城壁に到達)には自動発動せず、槍も出ない", () => {
+    const pike = pick((c) => c.unit === "槍兵" && c.cost === 1 && c.skills.length === 0);
+    const g = createGame(mk([pike.id]), mk([ofType("弓兵").id]));
+    const a = unitOf(g, 0, 0)!;
+    a.mode = "field";
+    a.x = a.tx = 100;
+    a.y = C.CASTLE_ZONE_H + C.SIEGE_REACH - 1; // 城壁に到達済み
+    a.ty = C.CASTLE_ZONE_H + C.UNIT_RADIUS; // 城壁へ向かう
+    a.cdAction = 0;
+    let sawSiege = false;
+    for (let i = 0; i < 60; i++) {
+      tick(g);
+      if (a.sieging) sawSiege = true;
+      expect(a.thrustT).toBe(0);
+    }
+    expect(sawSiege).toBe(true);
+    expect(snapshotFor(g, 0).units.find((u) => u.p === 0)!.pike).toBe(0);
   });
 
   const gunSetup = () => {

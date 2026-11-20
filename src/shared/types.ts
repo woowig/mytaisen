@@ -62,7 +62,7 @@ export interface UnitView {
   stratUsed?: boolean;
   stratCd?: number;
   actionCd?: number;
-  /** 兵種ゲージ(0〜1)。弓兵=掃射、剣豪=斬撃、鉄砲隊=チャージ */
+  /** 兵種ゲージ(0〜1)。弓兵=走射、剣豪=斬撃、鉄砲隊=チャージ */
   gauge?: number;
   /** 鉄砲隊が捕捉している敵の slot(ターゲットライン) */
   lock?: number;

@@ -20,7 +20,7 @@ const DUST_STEP = 14; // この距離を走るごとに砂煙を出す
 const DUST_MAX = 300; // 砂煙の粒の上限(多数の騎兵でも重くならないように)
 const TAP_SLOP = 8; // この距離以内ならカードを動かしていないクリックとみなす(画面のCSS px)
 // 兵種ごとのゲージ名(スナップショットの gauge を表示する)
-const GAUGE_LABEL: Record<string, string> = { 弓兵: "掃射", 剣豪: "斬撃", 鉄砲隊: "チャージ" };
+const GAUGE_LABEL: Record<string, string> = { 弓兵: "走射", 剣豪: "斬撃", 鉄砲隊: "チャージ" };
 const ME_COLOR = "#4aa3ff";
 const EN_COLOR = "#ff5a5a";
 
@@ -785,7 +785,7 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
               {selCard?.unit === "剣豪" ? "斬撃" : selCard?.unit === "鉄砲隊" ? "射撃" : "アクション"} [ダブルクリック]
               {sel && (sel.actionCd ?? 0) > 0 ? ` ${sel.actionCd}s` : ""}
             </button>
-            <div className="muted small">騎兵は走り続けると突撃、弓兵は止まると掃射ゲージが貯まり、満タンで動き出すと掃射します。剣豪は斬撃ゲージが満タンのときにカードを振る(短く素早く往復)と斬撃、鉄砲隊はターゲットラインが出ている間にカードを前後に揺らすと射撃します。</div>
+            <div className="muted small">騎兵は走り続けると突撃、弓兵は止まると走射ゲージが貯まり、満タンで動き出すと走射します。剣豪は斬撃ゲージが満タンのときにカードを振る(短く素早く往復)と斬撃、鉄砲隊はターゲットラインが出ている間にカードを前後に揺らすと射撃します。</div>
           </div>
         </aside>
       </div>

@@ -234,7 +234,7 @@ function buffSpeed(u: Unit) {
 }
 function pikeLen(u: Unit) {
   if (u.card.unit !== "槍兵") return 0;
-  if (u.mode !== "field" || u.melee || u.sieging) return 0;
+  if (u.mode !== "field" || u.melee || u.sieging || atWall(u)) return 0; // 攻城の判定は後段なので、城壁への到達で判定する
   let len = C.PIKE_LEN;
   if (has(u, "槍")) len += C.PIKE_LEN_PER_COST * u.card.cost;
   if (u.thrustT > 0) len *= C.THRUST_LEN_MUL;
@@ -610,7 +610,7 @@ function stepUnit(g: Game, u: Unit, dt: number, contacts: Map<number, number[]>)
     }
   }
 
-  // 弓兵の掃射ゲージ: 停止している間だけ蓄積する(移動中は保持)
+  // 弓兵の走射ゲージ: 停止している間だけ蓄積する(移動中は保持)
   if (u.card.unit === "弓兵" && u.mode === "field" && moved < 0.2 && !u.melee) {
     u.stillT = Math.min(C.BOW_SWEEP_FILL_T, u.stillT + dt);
   }
@@ -672,7 +672,6 @@ function updatePikes(g: Game, dt: number) {
       u.thrustT = C.THRUST_T;
       u.thrustHit.clear();
       u.cdAction = C.THRUST_CD;
-      u.hidden = false;
     }
     const len = pikeLen(u);
     if (len <= 0) continue;
@@ -731,7 +730,7 @@ function updateRanged(g: Game, dt: number) {
       }), C.BOW_RANGE);
       if (!t) continue;
       const dmg = C.BOW_DMG_BASE + strongOf(g, u) * C.BOW_DMG_PER_STRONG;
-      // 掃射: ゲージが満ちた状態で移動を始めると、現在の対象に追加ダメージ
+      // 走射: ゲージが満ちた状態で移動を始めると、現在の対象に追加ダメージ
       if (u.stillT >= C.BOW_SWEEP_FILL_T && u.lastSpeed >= 1) {
         u.stillT = 0;
         u.hidden = false;
