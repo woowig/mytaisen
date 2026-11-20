@@ -308,20 +308,14 @@ export function cmdAction(g: Game, p: PlayerIdx, slot: number): string | null {
   if (g.over) return "試合は終了しています";
   const u = unitOf(g, p, slot);
   if (!u) return "武将がいません";
+  if (u.card.unit !== "剣豪" && u.card.unit !== "鉄砲隊") return "このカードには固有アクションがありません";
   if (u.mode !== "field") return "出城していません";
   if (u.melee || u.sieging) return "乱戦・攻城中は行えません";
   if (u.ambush) return "伏兵中は行えません";
   if (u.cdAction > 0) return u.card.unit === "剣豪" ? "斬撃ゲージが溜まっていません" : u.card.unit === "鉄砲隊" ? "チャージ中です" : "クールダウン中です";
   switch (u.card.unit) {
-    case "槍兵":
-      u.thrustT = C.THRUST_T;
-      u.thrustHit.clear();
-      u.cdAction = C.THRUST_CD;
-      u.hidden = false;
-      return null;
     case "剣豪": {
       const hits = fieldEnemies(g, p, true).filter((e) => dist(u, e) <= C.SLASH_RANGE);
-      if (hits.length === 0) return "対象がいません";
       u.cdAction = C.SLASH_CD;
       emit(g, { k: "slash", x: u.x, y: u.y, p });
       for (const e of hits) {
@@ -673,6 +667,13 @@ function engage(g: Game, a: Unit, b: Unit, dt: number) {
 function updatePikes(g: Game, dt: number) {
   const interceptSpeed = C.BASE_SPEED["騎兵"] * C.CHARGE_TRIGGER_RATIO; // 騎兵の突撃発動速度
   for (const u of g.units) {
+    // 槍撃: 移動している間、クールダウンが明けるたびに自動で発動する
+    if (u.card.unit === "槍兵" && pikeLen(u) > 0 && !u.ambush && u.cdAction <= 0 && u.lastSpeed > 0) {
+      u.thrustT = C.THRUST_T;
+      u.thrustHit.clear();
+      u.cdAction = C.THRUST_CD;
+      u.hidden = false;
+    }
     const len = pikeLen(u);
     if (len <= 0) continue;
     for (const e of fieldEnemies(g, u.p, false)) {

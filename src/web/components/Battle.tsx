@@ -642,7 +642,9 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
       const lt = lastTap.current;
       const now = performance.now();
       const dbl = !!lt && lt.slot === hit.slot && now - lt.t <= DBLCLICK_MS && Math.hypot(e.clientX - lt.x, e.clientY - lt.y) <= TAP_SLOP;
-      if (dbl) send({ type: "action", slot: hit.slot });
+      // 槍兵の槍撃は自動発動なので、固有アクションを持つ剣豪・鉄砲隊だけ送る
+      const hu = CARD_BY_ID.get(hit.cardId)?.unit;
+      if (dbl && (hu === "剣豪" || hu === "鉄砲隊")) send({ type: "action", slot: hit.slot });
       lastTap.current = null;
       drag.current = { slot: hit.slot, dx: px - cx, dy: py - cy, x: cx, y: cy, lastSent: 0, sx: e.clientX, sy: e.clientY, moved: false, consumed: dbl };
       swing.current.reset();
@@ -779,8 +781,8 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
               {selCard ? ` ${selCard.strat.name}（士気${selCard.strat.mp}）` : ""}
             </button>
             {selCard && <div className="muted small">{selCard.strat.text}</div>}
-            <button className="btn" disabled={!sel || sel.mode !== "field" || (sel.actionCd ?? 0) > 0 || !["槍兵", "剣豪", "鉄砲隊"].includes(selCard?.unit ?? "")} onClick={selfActions.current.action}>
-              {selCard?.unit === "槍兵" ? "槍撃" : selCard?.unit === "剣豪" ? "斬撃" : selCard?.unit === "鉄砲隊" ? "射撃" : "アクション"} [ダブルクリック]
+            <button className="btn" disabled={!sel || sel.mode !== "field" || (sel.actionCd ?? 0) > 0 || !["剣豪", "鉄砲隊"].includes(selCard?.unit ?? "")} onClick={selfActions.current.action}>
+              {selCard?.unit === "剣豪" ? "斬撃" : selCard?.unit === "鉄砲隊" ? "射撃" : "アクション"} [ダブルクリック]
               {sel && (sel.actionCd ?? 0) > 0 ? ` ${sel.actionCd}s` : ""}
             </button>
             <div className="muted small">騎兵は走り続けると突撃、弓兵は止まると掃射ゲージが貯まり、満タンで動き出すと掃射します。剣豪は斬撃ゲージが満タンのときにカードを振る(短く素早く往復)と斬撃、鉄砲隊はターゲットラインが出ている間にカードを前後に揺らすと射撃します。</div>

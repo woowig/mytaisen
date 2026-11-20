@@ -434,8 +434,55 @@ describe("シミュレーション", () => {
     e.ambush = false;
     e.x = e.tx = 300 + C.SLASH_RANGE + 40; // 範囲外
     e.y = e.ty = 500;
-    expect(cmdAction(g, 0, 0)).toBe("対象がいません");
+    expect(cmdAction(g, 0, 0)).toBeNull(); // 周りに敵がいなくても斬撃できる(空振り)
     expect(e.hp).toBe(e.maxHp);
+    expect(snapshotFor(g, 0).units.find((u) => u.p === 0)!.gauge).toBe(0); // ゲージは消費する
+  });
+
+  test("槍兵は移動している間、槍撃が自動で発動し、クールダウン中は発動しない", () => {
+    const pike = pick((c) => c.unit === "槍兵" && c.cost === 1 && c.skills.length === 0);
+    const g = createGame(mk([pike.id]), mk([ofType("弓兵").id]));
+    const a = unitOf(g, 0, 0)!;
+    a.mode = "field";
+    a.x = a.tx = 300;
+    a.y = a.ty = 700;
+    a.cdAction = 0;
+    run(g, 0.2);
+    expect(a.thrustT).toBe(0); // 止まっている間は発動しない
+    a.ty = 300; // 移動開始
+    tick(g);
+    expect(a.thrustT).toBeGreaterThan(0);
+    expect(a.cdAction).toBeGreaterThan(0);
+    run(g, C.THRUST_T + 0.2);
+    expect(a.thrustT).toBe(0);
+    expect(a.cdAction).toBeGreaterThan(0); // クールダウン中
+    run(g, C.THRUST_CD - (C.THRUST_T + 0.2) - 0.05 + 0.1);
+    expect(a.thrustT).toBeGreaterThan(0); // 明けたら再発動
+    expect(cmdAction(g, 0, 0)).toBe("このカードには固有アクションがありません"); // 手動の槍撃はない
+  });
+
+  test("槍撃は乱戦中・攻城中・伏兵中には自動発動しない", () => {
+    const pike = pick((c) => c.unit === "槍兵" && c.cost === 1 && c.skills.length === 0);
+    const g = createGame(mk([pike.id]), mk([ofType("弓兵").id]));
+    const a = unitOf(g, 0, 0)!;
+    a.mode = "field";
+    a.x = a.tx = 300;
+    a.y = 700;
+    a.ty = 300;
+    a.cdAction = 0;
+    a.ambush = true;
+    tick(g);
+    expect(a.thrustT).toBe(0); // 伏兵中
+    a.ambush = false;
+    const e = unitOf(g, 1, 0)!;
+    e.mode = "field";
+    e.hidden = false;
+    e.ambush = false;
+    e.x = e.tx = 300;
+    e.y = e.ty = 690; // 接触(乱戦)
+    tick(g);
+    expect(a.melee).toBe(true);
+    expect(a.thrustT).toBe(0); // 乱戦中は槍が出ていない
   });
 
   const gunSetup = () => {
