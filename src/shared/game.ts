@@ -811,7 +811,7 @@ export function siegeBaseDamage(unit: UnitType, cost: number, strong: number): n
 }
 
 /** その部隊が次に攻城を入れたときのダメージ(城門倍率込み) */
-function nextSiegeDamage(g: Game, u: Unit): number {
+export function nextSiegeDamage(g: Game, u: Unit): number {
   const base = siegeBaseDamage(u.card.unit as UnitType, u.card.cost, strongOf(g, u));
   const gate = g.gate[enemyOf(u.p)] === u.id ? C.SIEGE_GATE_MUL : 1;
   return floor2(base * gate);

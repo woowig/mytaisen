@@ -61,7 +61,7 @@ export interface UnitView {
   ty?: number;
   respawn?: number;
   stratUsed?: boolean;
-  /** 次の攻城で入るダメージ(城門倍率・計略を含む) */
+  /** 次の攻城で入るダメージ(城門倍率・武力の増減を含む) */
   siegeDmg?: number;
   stratCd?: number;
   actionCd?: number;

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { CARDS } from "./shared/cards.ts";
 import * as C from "./shared/constants.ts";
-import { cmdAction, cmdMove, cmdStrat, createGame, siegeBaseDamage, siegeCostCoef, siegeNeedSec, snapshotFor, tick, unitOf, validateDeck, type Game } from "./shared/game.ts";
+import { cmdAction, cmdMove, cmdStrat, createGame, nextSiegeDamage, siegeBaseDamage, siegeCostCoef, siegeNeedSec, snapshotFor, tick, unitOf, validateDeck, type Game } from "./shared/game.ts";
 import type { Card, UnitType } from "./shared/types.ts";
 
 const pick = (pred: (c: Card) => boolean, skip = 0) => CARDS.filter(pred)[skip]!;
@@ -57,9 +57,26 @@ describe("validateDeck", () => {
 describe("攻城", () => {
   test("攻城ダメージの計算例(小数第3位切り捨て)", () => {
     expect(siegeBaseDamage("槍兵", 2, 7)).toBe(8.02);
-    expect(Math.floor(siegeBaseDamage("槍兵", 2, 7) * C.SIEGE_GATE_MUL * 100 + 1e-6) / 100).toBe(13.23);
     expect(siegeBaseDamage("騎兵", 1, 5)).toBe(0.66);
     expect(siegeBaseDamage("弓兵", 3, 8)).toBe(8.24);
+  });
+  test("城門の担当は城壁の1.65倍(13.23)で、相手には目安が送られない", () => {
+    const card = pick((c) => c.unit === "槍兵" && c.cost === 2 && c.skills.length === 0);
+    const g = createGame(mk([card.id]), mk([ofType("弓兵").id]));
+    const u = g.units[0]!;
+    u.card = { ...u.card, strong: 7 };
+    u.mode = "field";
+    u.x = C.FIELD_W / 2;
+    u.y = C.FIELD_H / 2;
+    u.sieging = true;
+    g.gate[1] = -1;
+    expect(nextSiegeDamage(g, u)).toBe(8.02);
+    g.gate[1] = u.id;
+    expect(nextSiegeDamage(g, u)).toBe(13.23);
+    const mine = snapshotFor(g, 0).units.find((v) => v.p === 0 && v.slot === 0)!;
+    const theirs = snapshotFor(g, 1).units.find((v) => v.p === 0 && v.slot === 0)!;
+    expect(mine.siegeDmg).toBe(13.23);
+    expect(theirs.siegeDmg).toBeUndefined();
   });
   test("兵種の順は 槍兵 > 剣豪 > 弓兵 = 鉄砲隊 > 騎兵", () => {
     for (const cost of [1, 2, 3, 4]) {
