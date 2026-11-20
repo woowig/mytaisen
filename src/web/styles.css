@@ -393,6 +393,10 @@ input.code {
 .morale-bar i.part {
   background: #6b5320;
 }
+.morale-bar i.locked {
+  background: repeating-linear-gradient(135deg, #4a4d55 0 3px, #2a2c32 3px 6px);
+  border-color: #555;
+}
 .hand {
   display: flex;
   flex-direction: column;

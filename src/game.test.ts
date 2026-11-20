@@ -138,8 +138,30 @@ describe("シミュレーション", () => {
 
   test("士気は上限まで回復して止まる", () => {
     const g = createGame(mk([ofType("槍兵").id]), mk([ofType("槍兵").id]));
-    run(g, 120);
+    g.morale[0] = g.maxMorale[0] - 0.5;
+    run(g, 20);
     expect(g.morale[0]).toBe(g.maxMorale[0]);
+  });
+
+  test("士気は4.2カウント(約10.1秒)で1溜まる", () => {
+    const g = createGame(mk([ofType("槍兵").id]), mk([ofType("槍兵").id]));
+    g.morale[0] = 0;
+    run(g, 4.2 * C.COUNT_SEC);
+    expect(g.morale[0]).toBeCloseTo(1, 1);
+  });
+
+  test("特技「同盟」でも最大士気は15を超えない", () => {
+    const allies = CARDS.filter((c) => c.skills.includes("盟")).sort((a, b) => b.cost - a.cost);
+    const ids: string[] = [];
+    const names = new Set<string>();
+    let cost = 0;
+    for (const c of allies) {
+      if (names.has(c.name) || cost + c.cost > C.DECK_MAX_COST) continue;
+      names.add(c.name);
+      ids.push(c.id);
+      cost += c.cost;
+    }
+    expect(mk(ids).maxMorale).toBeLessThanOrEqual(C.MAX_MORALE_CAP);
   });
 
   test("攻城で敵城ゲージが減り、0で勝敗がつく", () => {

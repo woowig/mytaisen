@@ -735,8 +735,8 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
           <div className="morale">
             <div className="muted">士気 {snap.morale.toFixed(1)} / {snap.maxMorale}</div>
             <div className="morale-bar">
-              {Array.from({ length: snap.maxMorale }, (_, i) => (
-                <i key={i} className={snap.morale >= i + 1 ? "on" : snap.morale > i ? "part" : ""} />
+              {Array.from({ length: C.MAX_MORALE_CAP }, (_, i) => (
+                <i key={i} className={i >= snap.maxMorale ? "locked" : snap.morale >= i + 1 ? "on" : snap.morale > i ? "part" : ""} />
               ))}
             </div>
           </div>
