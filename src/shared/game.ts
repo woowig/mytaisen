@@ -86,7 +86,6 @@ export interface Unit {
   cdIntercept: number;
   slowT: number;
   slowF: number;
-  thrustT: number;
   thrustHit: Set<number>;
   lockTarget: number; // unit id or -1
   lockT: number;
@@ -173,7 +172,6 @@ export function createGame(deckA: DeckInfo, deckB: DeckInfo): Game {
         cdIntercept: 0,
         slowT: 0,
         slowF: 1,
-        thrustT: 0,
         thrustHit: new Set(),
         lockTarget: -1,
         lockT: 0,
@@ -232,12 +230,15 @@ function buffSpeed(u: Unit) {
   for (const b of u.buffs) m *= b.speedMul;
   return m;
 }
+// 槍撃は、槍兵が移動している間(乱戦・攻城・伏兵中を除く)、常に発動している。攻城の判定は後段なので、城壁への到達で判定する
+function canThrust(u: Unit) {
+  return u.card.unit === "槍兵" && u.mode === "field" && !u.melee && !u.sieging && !atWall(u) && !u.ambush;
+}
+// 槍が出ているのは、槍撃の発動中(=移動中)だけ
 function pikeLen(u: Unit) {
-  if (u.card.unit !== "槍兵") return 0;
-  if (u.mode !== "field" || u.melee || u.sieging) return 0;
+  if (u.lastSpeed <= 0 || !canThrust(u)) return 0;
   let len = C.PIKE_LEN;
   if (has(u, "槍")) len += C.PIKE_LEN_PER_COST * u.card.cost;
-  if (u.thrustT > 0) len *= C.THRUST_LEN_MUL;
   return len;
 }
 const enemyOf = (p: PlayerIdx): PlayerIdx => (p === 0 ? 1 : 0);
@@ -308,20 +309,14 @@ export function cmdAction(g: Game, p: PlayerIdx, slot: number): string | null {
   if (g.over) return "試合は終了しています";
   const u = unitOf(g, p, slot);
   if (!u) return "武将がいません";
+  if (u.card.unit !== "剣豪" && u.card.unit !== "鉄砲隊") return "このカードには固有アクションがありません";
   if (u.mode !== "field") return "出城していません";
   if (u.melee || u.sieging) return "乱戦・攻城中は行えません";
   if (u.ambush) return "伏兵中は行えません";
   if (u.cdAction > 0) return u.card.unit === "剣豪" ? "斬撃ゲージが溜まっていません" : u.card.unit === "鉄砲隊" ? "チャージ中です" : "クールダウン中です";
   switch (u.card.unit) {
-    case "槍兵":
-      u.thrustT = C.THRUST_T;
-      u.thrustHit.clear();
-      u.cdAction = C.THRUST_CD;
-      u.hidden = false;
-      return null;
     case "剣豪": {
       const hits = fieldEnemies(g, p, true).filter((e) => dist(u, e) <= C.SLASH_RANGE);
-      if (hits.length === 0) return "対象がいません";
       u.cdAction = C.SLASH_CD;
       emit(g, { k: "slash", x: u.x, y: u.y, p });
       for (const e of hits) {
@@ -455,7 +450,6 @@ export function tick(g: Game, dt: number = C.DT) {
     u.stratCd = Math.max(0, u.stratCd - dt);
     u.slowT = Math.max(0, u.slowT - dt);
     if (u.slowT === 0) u.slowF = 1;
-    u.thrustT = Math.max(0, u.thrustT - dt);
     u.melee = false;
     u.sieging = false;
     if (u.mode === "dead") {
@@ -530,7 +524,6 @@ function retire(g: Game, u: Unit) {
   u.siege = 0;
   u.buffs = [];
   u.hidden = false;
-  u.thrustT = 0;
   u.lockTarget = -1;
   g.fences = g.fences.filter((f) => f.owner !== u.id);
   const home = slotHome(u.p, u.slot, g.decks[u.p].cards.length);
@@ -616,7 +609,7 @@ function stepUnit(g: Game, u: Unit, dt: number, contacts: Map<number, number[]>)
     }
   }
 
-  // 弓兵の掃射ゲージ: 停止している間だけ蓄積する(移動中は保持)
+  // 弓兵の走射ゲージ: 停止している間だけ蓄積する(移動中は保持)
   if (u.card.unit === "弓兵" && u.mode === "field" && moved < 0.2 && !u.melee) {
     u.stillT = Math.min(C.BOW_SWEEP_FILL_T, u.stillT + dt);
   }
@@ -674,7 +667,11 @@ function updatePikes(g: Game, dt: number) {
   const interceptSpeed = C.BASE_SPEED["騎兵"] * C.CHARGE_TRIGGER_RATIO; // 騎兵の突撃発動速度
   for (const u of g.units) {
     const len = pikeLen(u);
-    if (len <= 0) continue;
+    if (len <= 0) {
+      u.thrustHit.clear();
+      continue;
+    }
+    const inRange = new Set<number>();
     for (const e of fieldEnemies(g, u.p, false)) {
       // 槍撃の範囲: 移動方向の前方、短い距離と一定の角度
       const dx = e.x - u.x;
@@ -685,7 +682,9 @@ function updatePikes(g: Game, dt: number) {
       // 迎撃: 突撃発動速度以上で、槍と向かい合う方向から接近している
       const facing = e.fx * -u.fx + e.fy * -u.fy >= C.INTERCEPT_COS;
       const fast = e.lastSpeed >= interceptSpeed;
-      if (u.thrustT > 0 && !u.thrustHit.has(e.id)) {
+      inRange.add(e.id);
+      if (!u.thrustHit.has(e.id)) {
+        // 槍の範囲に入ったときに1回、追加のダメージ
         u.thrustHit.add(e.id);
         damage(g, e, C.THRUST_DMG_BASE + strongOf(g, u) * C.THRUST_DMG_PER_STRONG, "action");
         emit(g, { k: "hit", x: e.x, y: e.y, p: u.p });
@@ -713,6 +712,7 @@ function updatePikes(g: Game, dt: number) {
       }
       u.stealthT = C.STEALTH_RECOVER_T;
     }
+    for (const id of u.thrustHit) if (!inRange.has(id)) u.thrustHit.delete(id);
   }
 }
 
@@ -730,7 +730,7 @@ function updateRanged(g: Game, dt: number) {
       }), C.BOW_RANGE);
       if (!t) continue;
       const dmg = C.BOW_DMG_BASE + strongOf(g, u) * C.BOW_DMG_PER_STRONG;
-      // 掃射: ゲージが満ちた状態で移動を始めると、現在の対象に追加ダメージ
+      // 走射: ゲージが満ちた状態で移動を始めると、現在の対象に追加ダメージ
       if (u.stillT >= C.BOW_SWEEP_FILL_T && u.lastSpeed >= 1) {
         u.stillT = 0;
         u.hidden = false;
@@ -877,7 +877,6 @@ export function snapshotFor(g: Game, me: PlayerIdx): Snapshot {
       hidden: u.hidden,
       charging: u.charging,
       pike: round(pikeLen(u)),
-      thrust: u.thrustT > 0,
       melee: u.melee,
       sieging: u.sieging,
       siegeRatio: 0,

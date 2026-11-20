@@ -191,7 +191,7 @@ describe("シミュレーション", () => {
     b.x = 300;
     b.y = 300;
     b.tx = 300;
-    b.ty = 300;
+    b.ty = 900; // 騎兵に向かってゆっくり進みながら槍を出す
     b.fx = 0;
     b.fy = 1; // 下(P0側)向きに槍
     b.hp = b.maxHp;
@@ -255,7 +255,7 @@ describe("シミュレーション", () => {
     a.x = 300;
     a.y = 500;
     a.tx = a.x;
-    a.ty = a.y;
+    a.ty = a.y - 200; // 上へ進みながら槍を出す
     a.fx = 0;
     a.fy = -1; // 上向きに槍
     e.mode = "field";
@@ -310,7 +310,7 @@ describe("シミュレーション", () => {
     a.x = 300;
     a.y = 500;
     a.tx = a.x;
-    a.ty = a.y;
+    a.ty = a.y - 200; // 上へ進みながら槍を出す
     a.fx = 0;
     a.fy = -1;
     e.mode = "field";
@@ -364,7 +364,7 @@ describe("シミュレーション", () => {
     expect(e.hp).toBe(e.maxHp);
   });
 
-  test("弓兵は停止中に掃射ゲージが貯まり、満タンで動き出すと掃射する", () => {
+  test("弓兵は停止中に走射ゲージが貯まり、満タンで動き出すと走射する", () => {
     const { g, a, e } = bowSetup();
     e.maxHp = e.hp = 10000;
     run(g, C.BOW_SWEEP_FILL_T + 0.5);
@@ -372,16 +372,16 @@ describe("シミュレーション", () => {
     const before = e.hp;
     a.tx = 300;
     a.ty = 560; // 移動を開始(敵は前方のまま)
-    a.cdBow = 99; // 通常攻撃を止めて、掃射だけを見る
+    a.cdBow = 99; // 通常攻撃を止めて、走射だけを見る
     run(g, 0.3);
-    expect(before - e.hp).toBeGreaterThan(0); // 掃射の追加ダメージ
-    expect(a.stillT).toBe(0); // 掃射後はゲージが空になる
+    expect(before - e.hp).toBeGreaterThan(0); // 走射の追加ダメージ
+    expect(a.stillT).toBe(0); // 走射後はゲージが空になる
   });
 
-  test("弓兵の掃射ゲージは、移動しても保持される(満タン前)", () => {
+  test("弓兵の走射ゲージは、移動しても保持される(満タン前)", () => {
     const { g, a, e } = bowSetup();
     e.maxHp = e.hp = 10000;
-    e.y = e.ty = 100; // 射程外にして、掃射が起きないようにする
+    e.y = e.ty = 100; // 射程外にして、走射が起きないようにする
     run(g, 1.5);
     const gauge = a.stillT;
     expect(gauge).toBeGreaterThan(1);
@@ -434,8 +434,100 @@ describe("シミュレーション", () => {
     e.ambush = false;
     e.x = e.tx = 300 + C.SLASH_RANGE + 40; // 範囲外
     e.y = e.ty = 500;
-    expect(cmdAction(g, 0, 0)).toBe("対象がいません");
+    expect(cmdAction(g, 0, 0)).toBeNull(); // 周りに敵がいなくても斬撃できる(空振り)
     expect(e.hp).toBe(e.maxHp);
+    expect(snapshotFor(g, 0).units.find((u) => u.p === 0)!.gauge).toBe(0); // ゲージは消費する
+  });
+
+  const pikeOf = (g: Game) => snapshotFor(g, 0).units.find((u) => u.p === 0)!.pike;
+
+  test("槍兵は移動している間は槍撃が常に発動し(クールダウンなし)、止まると槍が消える", () => {
+    const pike = pick((c) => c.unit === "槍兵" && c.cost === 1 && c.skills.length === 0);
+    const g = createGame(mk([pike.id]), mk([ofType("弓兵").id]));
+    const a = unitOf(g, 0, 0)!;
+    a.mode = "field";
+    a.x = a.tx = 300;
+    a.y = a.ty = 700;
+    run(g, 0.2);
+    expect(pikeOf(g)).toBe(0); // 止まっている間は槍が出ない
+    a.ty = 300; // 移動開始
+    for (let i = 0; i < 20 * 8; i++) {
+      tick(g);
+      expect(pikeOf(g)).toBeGreaterThan(0); // 移動中は常に出ている
+    }
+    expect(cmdAction(g, 0, 0)).toBe("このカードには固有アクションがありません"); // 手動の槍撃はない
+    a.tx = a.x;
+    a.ty = a.y; // 止まる
+    run(g, 0.2);
+    expect(pikeOf(g)).toBe(0);
+  });
+
+  test("槍撃は乱戦中・攻城中・伏兵中には自動発動しない", () => {
+    const pike = pick((c) => c.unit === "槍兵" && c.cost === 1 && c.skills.length === 0);
+    const g = createGame(mk([pike.id]), mk([ofType("弓兵").id]));
+    const a = unitOf(g, 0, 0)!;
+    a.mode = "field";
+    a.x = a.tx = 300;
+    a.y = 700;
+    a.ty = 300;
+    a.cdAction = 0;
+    a.ambush = true;
+    tick(g);
+    expect(pikeOf(g)).toBe(0); // 伏兵中
+    a.ambush = false;
+    const e = unitOf(g, 1, 0)!;
+    e.mode = "field";
+    e.hidden = false;
+    e.ambush = false;
+    e.x = e.tx = 300;
+    e.y = e.ty = 690; // 接触(乱戦)
+    tick(g);
+    expect(a.melee).toBe(true);
+    expect(pikeOf(g)).toBe(0); // 乱戦中は槍が出ていない
+  });
+
+  test("槍は移動中だけ出ていて、止まっていると当たらない・迎撃しない", () => {
+    const pike = pick((c) => c.unit === "槍兵" && c.cost === 1 && c.skills.length === 0);
+    const g = createGame(mk([pike.id]), mk([ofType("弓兵").id]));
+    const a = unitOf(g, 0, 0)!;
+    const e = unitOf(g, 1, 0)!;
+    a.mode = "field";
+    a.x = a.tx = 300;
+    a.y = a.ty = 500; // 止まっている
+    a.fx = 0;
+    a.fy = -1;
+    e.mode = "field";
+    e.tx = e.x = 300;
+    e.ty = e.y = 500 - 60; // 前方の槍の範囲内(接触はしない距離)
+    e.hp = e.maxHp;
+    e.hidden = false;
+    e.ambush = false;
+    tick(g);
+    expect(pikeOf(g)).toBe(0);
+    expect(e.hp).toBe(e.maxHp);
+    a.ty = 100; // 移動開始
+    tick(g);
+    expect(pikeOf(g)).toBeGreaterThan(0);
+    expect(e.hp).toBeLessThan(e.maxHp);
+  });
+
+  test("槍撃は攻城中(城壁に到達)には自動発動せず、槍も出ない", () => {
+    const pike = pick((c) => c.unit === "槍兵" && c.cost === 1 && c.skills.length === 0);
+    const g = createGame(mk([pike.id]), mk([ofType("弓兵").id]));
+    const a = unitOf(g, 0, 0)!;
+    a.mode = "field";
+    a.x = a.tx = 100;
+    a.y = C.CASTLE_ZONE_H + C.SIEGE_REACH - 1; // 城壁に到達済み
+    a.ty = C.CASTLE_ZONE_H + C.UNIT_RADIUS; // 城壁へ向かう
+    a.cdAction = 0;
+    let sawSiege = false;
+    for (let i = 0; i < 60; i++) {
+      tick(g);
+      if (a.sieging) sawSiege = true;
+      expect(pikeOf(g)).toBe(0);
+    }
+    expect(sawSiege).toBe(true);
+    expect(snapshotFor(g, 0).units.find((u) => u.p === 0)!.pike).toBe(0);
   });
 
   const gunSetup = () => {

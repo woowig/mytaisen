@@ -51,7 +51,6 @@ export interface UnitView {
   hidden: boolean;
   charging: boolean;
   pike: number; // 槍の長さ(0なら槍なし)
-  thrust: boolean; // 槍撃アクション中(表示用)
   melee: boolean;
   sieging: boolean;
   siegeRatio: number;
@@ -62,7 +61,7 @@ export interface UnitView {
   stratUsed?: boolean;
   stratCd?: number;
   actionCd?: number;
-  /** 兵種ゲージ(0〜1)。弓兵=掃射、剣豪=斬撃、鉄砲隊=チャージ */
+  /** 兵種ゲージ(0〜1)。弓兵=走射、剣豪=斬撃、鉄砲隊=チャージ */
   gauge?: number;
   /** 鉄砲隊が捕捉している敵の slot(ターゲットライン) */
   lock?: number;
