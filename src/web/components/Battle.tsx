@@ -13,7 +13,7 @@ const CARD_MIN_Y = C.CASTLE_ZONE_H + CARD_H / 2;
 // カード上端が壁にほぼ接していれば壁への攻撃指示にする(余裕分)
 const WALL_SNAP = 14;
 const DBLCLICK_MS = 300; // ダブルクリックとみなす間隔
-const TAP_SLOP = 8; // この距離以内ならカードを動かしていないクリックとみなす(論理座標)
+const TAP_SLOP = 8; // この距離以内ならカードを動かしていないクリックとみなす(画面のCSS px)
 // 兵種ごとのゲージ名(スナップショットの gauge を表示する)
 const GAUGE_LABEL: Record<string, string> = { 弓兵: "掃射", 剣豪: "斬撃", 鉄砲隊: "チャージ" };
 const ME_COLOR = "#4aa3ff";
@@ -43,7 +43,7 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
   // カードを振る操作(剣豪の斬撃)の検出
   const swing = useRef(new ShakeDetector(SWING));
   const gunShake = useRef(new ShakeDetector(SWING, "vertical")); // 鉄砲隊: カードを前後に揺らす
-  const drag = useRef<{ slot: number; dx: number; dy: number; x: number; y: number; lastSent: number; sx: number; sy: number; moved: boolean } | null>(null);
+  const drag = useRef<{ slot: number; dx: number; dy: number; x: number; y: number; lastSent: number; sx: number; sy: number; moved: boolean; consumed: boolean } | null>(null);
   // ダブルクリック判定用: 直前にほぼ動かさずに離したカードの slot / 時刻 / 位置
   const lastTap = useRef<{ slot: number; t: number; x: number; y: number } | null>(null);
   const selRef = useRef(selected);
@@ -489,14 +489,15 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
       // 直前のクリックと同じカード・時間内・ほぼ同じ位置ならダブルクリック → そのカードの兵種アクション
       const lt = lastTap.current;
       const now = performance.now();
-      if (lt && lt.slot === hit.slot && now - lt.t <= DBLCLICK_MS && Math.hypot(px - lt.x, py - lt.y) <= TAP_SLOP) {
-        send({ type: "action", slot: hit.slot });
-        lastTap.current = null;
-      }
-      drag.current = { slot: hit.slot, dx: px - cx, dy: py - cy, x: cx, y: cy, lastSent: 0, sx: px, sy: py, moved: false };
+      const dbl = !!lt && lt.slot === hit.slot && now - lt.t <= DBLCLICK_MS && Math.hypot(e.clientX - lt.x, e.clientY - lt.y) <= TAP_SLOP;
+      if (dbl) send({ type: "action", slot: hit.slot });
+      lastTap.current = null;
+      drag.current = { slot: hit.slot, dx: px - cx, dy: py - cy, x: cx, y: cy, lastSent: 0, sx: e.clientX, sy: e.clientY, moved: false, consumed: dbl };
       swing.current.reset();
       gunShake.current.reset();
-    } else if (selRef.current >= 0) {
+    } else {
+      lastTap.current = null;
+      if (selRef.current < 0) return;
       // 空きをクリックで選択中カードを移動指示
       sendMove(selRef.current, px, py);
     }
@@ -505,7 +506,7 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
     const d = drag.current;
     if (!d) return;
     const [px, py] = toLogical(e);
-    if (Math.hypot(px - d.sx, py - d.sy) > TAP_SLOP) d.moved = true;
+    if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > TAP_SLOP) d.moved = true;
     d.x = Math.min(C.FIELD_W, Math.max(0, px - d.dx));
     d.y = Math.min(C.FIELD_H, Math.max(CARD_MIN_Y, py - d.dy));
     const now = performance.now();
@@ -521,9 +522,14 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
   };
   const onUp = () => {
     const d = drag.current;
-    if (d) sendMove(d.slot, d.x, d.y);
-    // ほとんど動かさずに離したら、ダブルクリック判定の1回目として記録
-    lastTap.current = d && !d.moved ? { slot: d.slot, t: performance.now(), x: d.sx, y: d.sy } : null;
+    // 動かしていないクリックでは移動指示を出さない(走行中の騎兵などを止めない)
+    if (d && (d.moved || d.lastSent > 0)) sendMove(d.slot, d.x, d.y);
+    // ほとんど動かさずに離したら、ダブルクリック判定の1回目として記録(ダブルクリックで使った押下は記録しない)
+    lastTap.current = d && !d.moved && !d.consumed ? { slot: d.slot, t: performance.now(), x: d.sx, y: d.sy } : null;
+    drag.current = null;
+  };
+  const onCancel = () => {
+    lastTap.current = null;
     drag.current = null;
   };
 
@@ -567,7 +573,7 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
       <div className="fields">
         <div className="pane">
           <div className="pane-title">カードフィールド（ここでカードを動かす）</div>
-          <canvas ref={cardCv} className="cv" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} />
+          <canvas ref={cardCv} className="cv" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onCancel} />
         </div>
         <div className="pane">
           <div className="pane-title">バトルフィールド（反映される戦場）</div>
