@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { CARDS, parseStratUseLimit, STRAT_LOCK_SEC_BY_ID, STRAT_USE_LIMIT_BY_ID } from "./shared/cards.ts";
 import * as C from "./shared/constants.ts";
-import { cmdAction, cmdMove, cmdStrat, createGame, retire, nextSiegeDamage, siegeBaseDamage, siegeCostCoef, siegeNeedSec, snapshotFor, tick, unitOf, validateDeck, type Game } from "./shared/game.ts";
+import { cmdAction, cmdMove, cmdStrat, createGame, retire, nextSiegeDamage, siegeBaseDamage, siegeCostCoef, siegeNeedSec, snapshotFor, tick, unitOf, validateDeck, type Game, type Unit } from "./shared/game.ts";
 import type { Card, UnitType } from "./shared/types.ts";
 
 const pick = (pred: (c: Card) => boolean, skip = 0) => CARDS.filter(pred)[skip]!;
@@ -51,6 +51,145 @@ describe("validateDeck", () => {
     expect(m([a, b])).toBe(10);
     expect(m([a, b, d])).toBe(8);
     expect(m([a, b, d, e])).toBe(6);
+  });
+});
+
+describe("柵", () => {
+  const fenceCard = (unit: UnitType = "槍兵") => pick((c) => c.skills.includes("柵") && c.unit === unit && c.cost === 1);
+  const setup = (enemyCount = 1) => {
+    const f = fenceCard();
+    const enemies = [ofType("槍兵", 1, 0), ofType("槍兵", 1, 1)].slice(0, enemyCount);
+    const g = createGame(mk([f.id]), mk(enemies.map((c) => c.id)));
+    const fence = g.fences[0]!;
+    return { g, fence, enemies: g.units.filter((u) => u.p === 1) };
+  };
+  /** 敵部隊を柵のすぐ手前(敵側)に置く */
+  const touch = (g: Game, u: Unit, fence: Game["fences"][number], dx = 0) => {
+    u.mode = "field";
+    u.x = fence.x + fence.w / 2 + dx;
+    u.y = fence.y + fence.h / 2 - C.UNIT_RADIUS; // 自陣(上側)から見て敵側へ
+    u.tx = u.x;
+    u.ty = u.y;
+  };
+
+  test("柵は開戦時に耐久値が満タンで置かれる", () => {
+    const { g, fence } = setup();
+    expect(fence.hp).toBe(C.FENCE_HP);
+    const v = snapshotFor(g, 0).fences[0]!;
+    expect(v.hp).toBe(1);
+    expect(v.breaking).toBe(false);
+    expect(typeof v.id).toBe("number");
+  });
+
+  test("敵1部隊が接し続けると約6秒で壊れて消える", () => {
+    const { g, fence, enemies } = setup();
+    touch(g, enemies[0]!, fence);
+    run(g, C.FENCE_BREAK_SEC - 0.5);
+    expect(g.fences.length).toBe(1);
+    expect(snapshotFor(g, 1).fences[0]!.breaking).toBe(true);
+    expect(snapshotFor(g, 1).fences[0]!.hp).toBeLessThan(0.2);
+    run(g, 1);
+    expect(g.fences.length).toBe(0);
+    expect(g.fx.some((x) => x.k === "fence")).toBe(true);
+  });
+
+  test("敵2部隊が接すると約3秒で壊れる", () => {
+    const { g, fence, enemies } = setup(2);
+    touch(g, enemies[0]!, fence, -10);
+    touch(g, enemies[1]!, fence, 10);
+    run(g, C.FENCE_BREAK_SEC / 2 - 0.3);
+    expect(g.fences.length).toBe(1);
+    run(g, 0.6);
+    expect(g.fences.length).toBe(0);
+  });
+
+  test("敵部隊が離れると減らなくなり、時間でも回復しない", () => {
+    const { g, fence, enemies } = setup();
+    const e = enemies[0]!;
+    touch(g, e, fence);
+    run(g, 2);
+    const hp = fence.hp;
+    expect(hp).toBeLessThan(C.FENCE_HP);
+    e.y = fence.y - 200;
+    e.ty = e.y;
+    run(g, 5);
+    expect(fence.breaking).toBe(false);
+    expect(fence.hp).toBe(hp);
+  });
+
+  test("城内・撤退中の敵部隊は柵を壊せない", () => {
+    const { g, fence, enemies } = setup();
+    const e = enemies[0]!;
+    touch(g, e, fence);
+    e.mode = "castle";
+    e.ty = 20; // カードが城内にあるので、出城しない
+    run(g, 0.1);
+    expect(e.mode).toBe("castle");
+    expect(fence.hp).toBe(C.FENCE_HP);
+    touch(g, e, fence);
+    e.mode = "dead";
+    e.respawn = 100;
+    run(g, 3);
+    expect(fence.hp).toBe(C.FENCE_HP);
+  });
+
+  test("持ち主の軍の部隊は自軍の柵を壊さない", () => {
+    const f = fenceCard();
+    const mate = ofType("槍兵", 1, 1);
+    const g = createGame(mk([f.id, mate.id]), mk([ofType("弓兵").id]));
+    const fence = g.fences[0]!;
+    const ally = unitOf(g, 0, 1)!;
+    touch(g, ally, fence);
+    run(g, 3);
+    expect(fence.hp).toBe(C.FENCE_HP);
+  });
+
+  test("壊している最中も、敵部隊は柵を通り抜けられない", () => {
+    const { g, fence, enemies } = setup();
+    const e = enemies[0]!;
+    touch(g, e, fence);
+    cmdMove(g, 1, e.slot, e.x, fence.y + fence.h + 300); // 柵の向こう(持ち主の陣)へ進ませる
+    run(g, 3);
+    expect(g.fences.length).toBe(1);
+    expect(e.y).toBeLessThan(fence.y);
+  });
+
+  test("柵が壊れた後は通れる", () => {
+    const { g, fence, enemies } = setup();
+    const e = enemies[0]!;
+    touch(g, e, fence);
+    const goalY = fence.y + fence.h + 300;
+    cmdMove(g, 1, e.slot, e.x, goalY);
+    run(g, C.FENCE_BREAK_SEC + 0.5);
+    expect(g.fences.length).toBe(0);
+    run(g, 3);
+    expect(e.y).toBeGreaterThan(fence.y + fence.h);
+  });
+
+  test("持ち主が撤退して復活すると、耐久値が満タンの柵が置かれる", () => {
+    const { g, fence, enemies } = setup();
+    touch(g, enemies[0]!, fence);
+    run(g, 3);
+    expect(fence.hp).toBeLessThan(C.FENCE_HP);
+    const owner = unitOf(g, 0, 0)!;
+    owner.mode = "field";
+    retire(g, owner);
+    expect(g.fences.length).toBe(0);
+    owner.respawn = 0.01;
+    enemies[0]!.x = 10;
+    enemies[0]!.y = C.FIELD_H / 2;
+    run(g, 1);
+    expect(g.fences.length).toBe(1);
+    expect(g.fences[0]!.hp).toBe(C.FENCE_HP);
+  });
+
+  test("壊れた柵は、持ち主が撤退していなければ置き直されない", () => {
+    const { g, fence, enemies } = setup();
+    touch(g, enemies[0]!, fence);
+    run(g, C.FENCE_BREAK_SEC + 1);
+    expect(g.fences.length).toBe(0);
+    run(g, 20);
+    expect(g.fences.length).toBe(0);
   });
 });
 

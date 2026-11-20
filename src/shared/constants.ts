@@ -148,6 +148,9 @@ export const HEI_PER_COST = 0.06; // 特技「兵」: 同時代の兵持ちコ�
 export const FENCE_W = 70;
 export const FENCE_H = 10;
 export const FENCE_OFFSET = 130;
+export const FENCE_HP = 100; // 柵の耐久値(最大)
+export const FENCE_BREAK_SEC = 6; // 敵1部隊が接し続けたとき、満タンの柵が壊れるまでの秒数
+export const FENCE_TOUCH = UNIT_RADIUS; // 柵の当たり判定の外側、この距離以内の敵部隊は柵に接している
 
 // 計略
 export const STRAT_SHORT_CD = 25;
