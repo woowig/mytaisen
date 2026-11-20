@@ -15,6 +15,9 @@ const WALL_SNAP = 14;
 const DBLCLICK_MS = 300; // ダブルクリックとみなす間隔
 const PIKE_MOVE_SPEED = 12; // これより速く動いている槍兵は「移動中」(盤面座標のpx/s)
 const PIKE_STAB_MS = 350; // 移動中の槍の突き出し周期
+const DUST_MIN_SPEED = 20; // 砂煙を出す最低速度(盤面座標のpx/s)
+const DUST_STEP = 14; // この距離を走るごとに砂煙を出す
+const DUST_MAX = 300; // 砂煙の粒の上限(多数の騎兵でも重くならないように)
 const TAP_SLOP = 8; // この距離以内ならカードを動かしていないクリックとみなす(画面のCSS px)
 // 兵種ごとのゲージ名(スナップショットの gauge を表示する)
 const GAUGE_LABEL: Record<string, string> = { 弓兵: "掃射", 剣豪: "斬撃", 鉄砲隊: "チャージ" };
@@ -43,6 +46,11 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
   const disp = useRef(new Map<string, { x: number; y: number }>());
   // 表示位置から求めた部隊ごとの移動速度(px/s、なめらかにしたもの)。槍の移動中エフェクトの判定に使う
   const speed = useRef(new Map<string, number>());
+  // 突撃中の騎兵が走った跡の砂煙(盤面座標。部隊についていかず、その場で広がって消える)
+  type Dust = { x: number; y: number; vx: number; vy: number; born: number; life: number; r0: number; tone: number };
+  const dust = useRef<Dust[]>([]);
+  const dustLast = useRef(new Map<string, { x: number; y: number }>());
+  const wasCharging = useRef(new Map<string, boolean>());
   const fxLive = useRef<FxLive[]>([]);
   // カードを振る操作(剣豪の斬撃)の検出
   const swing = useRef(new ShakeDetector(SWING));
@@ -95,6 +103,7 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
           speed.current.set(key, prev + (v - prev) * (1 - Math.exp(-dt * 10)));
         }
       }
+      updateDust(s, now);
       if (cardCv.current) drawCardField(fit(cardCv.current), cardCv.current, s);
       if (fieldCv.current) drawBattleField(fit(fieldCv.current), fieldCv.current, s, now);
     };
@@ -303,12 +312,109 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
       ctx.arc(x2, y2, C.UNIT_RADIUS + 5, 0, Math.PI * 2);
       ctx.stroke();
     }
+    // 砂煙(部隊の下)
+    drawDust(ctx, now);
     // 部隊(奥から)
     const list = [...s.units].filter((u) => !(u.p !== you && u.mode === "dead")).sort((a, b) => (disp.current.get(`${a.p}:${a.slot}`)?.y ?? 0) - (disp.current.get(`${b.p}:${b.slot}`)?.y ?? 0));
     const ordered = flipOrder(list);
     for (const u of ordered) drawUnit(ctx, u, now);
     // エフェクト
     for (const f of fxLive.current) drawFx(ctx, f, now);
+  }
+
+  function updateDust(s: Snapshot, now: number) {
+    const list = dust.current;
+    const puff = (x: number, y: number, vx: number, vy: number, r0: number) => {
+      list.push({ x, y, vx, vy, born: now, life: 600 + Math.random() * 400, r0, tone: Math.random() });
+    };
+    for (const u of s.units) {
+      const key = `${u.p}:${u.slot}`;
+      const d = disp.current.get(key);
+      if (!d) continue;
+      const visible = u.mode === "field" && !u.hidden;
+      // 突撃可能になった瞬間は、周囲に一度だけぶわっと広がる
+      if (u.charging && visible && !wasCharging.current.get(key)) {
+        for (let i = 0; i < 12; i++) {
+          const a = (i / 12) * Math.PI * 2 + Math.random() * 0.4;
+          const sp = 25 + Math.random() * 35;
+          puff(d.x + Math.cos(a) * C.UNIT_RADIUS * 0.6, d.y + Math.sin(a) * C.UNIT_RADIUS * 0.6, Math.cos(a) * sp, Math.sin(a) * sp, 6 + Math.random() * 5);
+        }
+      }
+      wasCharging.current.set(key, u.charging);
+      const running = u.charging && visible && (speed.current.get(key) ?? 0) > DUST_MIN_SPEED;
+      if (!running) {
+        dustLast.current.delete(key);
+        continue;
+      }
+      const last = dustLast.current.get(key);
+      if (!last) {
+        dustLast.current.set(key, { x: d.x, y: d.y });
+        continue;
+      }
+      if (Math.hypot(d.x - last.x, d.y - last.y) < DUST_STEP) continue;
+      dustLast.current.set(key, { x: d.x, y: d.y });
+      // 足元(部隊の後方)から、位置・大きさ・広がる向きを少しずつばらつかせて出す
+      for (let i = 0; i < 2; i++) {
+        const lat = (Math.random() - 0.5) * C.UNIT_RADIUS;
+        const back = C.UNIT_RADIUS * (0.5 + Math.random() * 0.4);
+        puff(d.x - u.fx * back - u.fy * lat, d.y - u.fy * back + u.fx * lat, (Math.random() - 0.5) * 30, (Math.random() - 0.5) * 30 - 6, 5 + Math.random() * 4);
+      }
+    }
+    dust.current = list.filter((p) => now - p.born < p.life);
+    if (dust.current.length > DUST_MAX) dust.current.splice(0, dust.current.length - DUST_MAX);
+  }
+
+  function drawDust(ctx: CanvasRenderingContext2D, now: number) {
+    for (const p of dust.current) {
+      const t = (now - p.born) / p.life;
+      const [x, y] = toView(p.x + (p.vx * (now - p.born)) / 1000, p.y + (p.vy * (now - p.born)) / 1000);
+      ctx.fillStyle = p.tone < 0.5 ? `rgba(168,136,96,${0.5 * (1 - t)})` : `rgba(226,206,168,${0.45 * (1 - t)})`;
+      ctx.beginPath();
+      ctx.arc(x, y, p.r0 * (1 + 1.8 * t), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // 突撃オーラ: 進行方向に尖り、後方へ尾を引く炎の形と、後方へ流れる速度線
+  function drawChargeAura(ctx: CanvasRenderingContext2D, x: number, y: number, fx: number, fy: number, r: number, now: number) {
+    const L = r * 3.4; // 尾の長さ
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Math.atan2(fy, fx)); // +x が進行方向
+    const grad = ctx.createLinearGradient(r * 1.2, 0, -L, 0);
+    grad.addColorStop(0, "rgba(255,214,110,0.85)");
+    grad.addColorStop(0.45, "rgba(255,150,50,0.5)");
+    grad.addColorStop(1, "rgba(255,90,20,0)");
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(r * 1.25, 0); // 先端(前方)
+    const N = 6;
+    for (let i = 1; i <= N; i++) {
+      const t = i / N;
+      const w = r * 1.05 * Math.sin(Math.PI * Math.pow(t, 0.55)) * (1 - 0.35 * t) + Math.sin(now / 45 + i * 1.7) * r * 0.08 * t;
+      ctx.lineTo(r * 1.25 - t * (r * 1.25 + L), -w);
+    }
+    for (let i = N - 1; i >= 1; i--) {
+      const t = i / N;
+      const w = r * 1.05 * Math.sin(Math.PI * Math.pow(t, 0.55)) * (1 - 0.35 * t) + Math.sin(now / 45 + i * 2.3 + 1) * r * 0.08 * t;
+      ctx.lineTo(r * 1.25 - t * (r * 1.25 + L), w);
+    }
+    ctx.closePath();
+    ctx.fill();
+    // 速度線
+    for (let i = 0; i < 5; i++) {
+      const p = (now / 420 + i * 0.37) % 1;
+      const lat = (i - 2) * r * 0.5 + Math.sin(i * 12.9) * r * 0.1;
+      const len = 8 + ((i * 7) % 3) * 5;
+      const sx = -r * 0.7 - p * L * 1.2;
+      ctx.strokeStyle = `rgba(255,236,190,${0.8 * (1 - p)})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(sx, lat);
+      ctx.lineTo(sx - len, lat);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   function flipOrder(list: UnitView[]) {
@@ -386,12 +492,7 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
     if (u.hidden) ctx.globalAlpha = 0.4;
     // 槍
     if (u.pike > 0) drawPikes(ctx, u, x, y, fx, fy, r, now);
-    if (u.charging) {
-      ctx.fillStyle = "rgba(255,170,60,0.35)";
-      ctx.beginPath();
-      ctx.arc(x, y, r + 9 + Math.sin(now / 80) * 2, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    if (u.charging) drawChargeAura(ctx, x, y, fx, fy, r, now);
     if (u.sieging) {
       ctx.strokeStyle = "#ffe36b";
       ctx.lineWidth = 4;
