@@ -141,15 +141,40 @@ describe("城内の移動", () => {
     expect(u.y).toBe(castleY - 10);
   });
 
-  test("出城している間の移動(歩く速さ)は変わらない", () => {
+  test("出城している間は、今までどおり兵種の速さで歩いて移動する", () => {
     const { g, u } = solo();
     cmdMove(g, 0, 0, 300, C.FIELD_H / 2);
+    tick(g); // 出城
+    const x0 = u.x;
+    const y0 = u.y;
     run(g, 2);
-    const speed = C.BASE_SPEED["槍兵"];
     expect(u.mode as string).toBe("field");
-    expect(Math.hypot(u.x - 300, u.y - C.FIELD_H / 2)).toBeGreaterThan(50);
-    expect(u.lastSpeed).toBeLessThanOrEqual(speed + 1e-6);
-    expect(u.lastSpeed).toBeGreaterThan(0);
+    const walked = Math.hypot(u.x - x0, u.y - y0);
+    const expected = C.BASE_SPEED["槍兵"] * 2;
+    expect(walked).toBeGreaterThan(expected * 0.9);
+    expect(walked).toBeLessThan(expected * 1.1);
+  });
+
+  test("撤退中に城内へ置いたカードの位置へは、復活後に一瞬で移動する。城の外なら歩いて向かう", () => {
+    const { g, u } = solo();
+    u.mode = "field";
+    retire(g, u);
+    expect(cmdMove(g, 0, 0, 120, castleY)).toBeNull(); // 撤退中も目的地を指示できる
+    u.respawn = 0.05;
+    run(g, 0.5);
+    expect(u.mode as string).toBe("castle");
+    expect(u.x).toBe(120);
+    expect(u.y).toBe(castleY);
+
+    const b = solo();
+    b.u.mode = "field";
+    retire(b.g, b.u);
+    cmdMove(b.g, 0, 0, 300, C.FIELD_H / 2);
+    b.u.respawn = 0.05;
+    run(b.g, 0.5);
+    expect(b.u.mode as string).toBe("field");
+    expect(Math.abs(b.u.y - C.FIELD_H / 2)).toBeGreaterThan(100); // 目的地へ一瞬では着かない
+    expect(castleY - b.u.y).toBeLessThan(60); // 定位置の近くから歩き出している
   });
 });
 
