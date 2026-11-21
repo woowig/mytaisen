@@ -312,7 +312,7 @@ export function cmdMove(g: Game, p: PlayerIdx, slot: number, x: number, y: numbe
   const u = unitOf(g, p, slot);
   if (!u) return "武将がいません";
   if (!Number.isFinite(x) || !Number.isFinite(y)) return "座標が不正です";
-  if (u.mode === "dead") return "撤退中です";
+  // 撤退中も目的地は指示できる(部隊は復活するまで動かず、復活したらその目的地へ向かう)
   u.tx = clamp(x, 0, C.FIELD_W);
   // 敵城エリアには入れない
   u.ty = p === 0 ? clamp(y, C.CASTLE_ZONE_H + C.UNIT_RADIUS, C.FIELD_H) : clamp(y, 0, C.FIELD_H - C.CASTLE_ZONE_H - C.UNIT_RADIUS);

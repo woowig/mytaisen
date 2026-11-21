@@ -12,6 +12,7 @@ const CARD_H = 74;
 const CARD_MIN_Y = C.CASTLE_ZONE_H + CARD_H / 2;
 // カード上端が壁にほぼ接していれば壁への攻撃指示にする(余裕分)
 const WALL_SNAP = 14;
+const CARD_ALPHA = 0.55; // 戦場に重ねるカードの不透明度(選択中・ドラッグ中は1)
 const DBLCLICK_MS = 300; // ダブルクリックとみなす間隔
 const PIKE_STAB_MS = 350; // 移動中の槍の突き出し周期
 const DUST_MIN_SPEED = 20; // 砂煙を出す最低速度(盤面座標のpx/s)
@@ -42,7 +43,6 @@ interface Props {
 }
 
 export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelected, toast, opponent }: Props) {
-  const cardCv = useRef<HTMLCanvasElement>(null);
   const fieldCv = useRef<HTMLCanvasElement>(null);
   const disp = useRef(new Map<string, { x: number; y: number }>());
   // 表示位置から求めた部隊ごとの移動速度(px/s、なめらかにしたもの)。槍の移動中エフェクトの判定に使う
@@ -107,7 +107,6 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
         }
       }
       updateDust(s, now);
-      if (cardCv.current) drawCardField(fit(cardCv.current), cardCv.current, s);
       if (fieldCv.current) drawBattleField(fit(fieldCv.current), fieldCv.current, s, now);
     };
     raf = requestAnimationFrame(loop);
@@ -130,63 +129,28 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
     ctx.fillText("城門", x, y + 24);
   }
 
-  function drawCardField(ctx: CanvasRenderingContext2D, cv: HTMLCanvasElement, s: Snapshot) {
-    const k = sc(cv);
-    ctx.setTransform(k, 0, 0, k, 0, -C.CASTLE_ZONE_H * k); // 敵城エリア分は表示しない
-    const W = C.FIELD_W;
-    const H = C.FIELD_H;
-    const g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, "#2a2118");
-    g.addColorStop(1, "#3a2d20");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
-    // 木目風の罫線
-    ctx.strokeStyle = "rgba(255,255,255,0.05)";
-    ctx.lineWidth = 1;
-    for (let y = 0; y < H; y += 50) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(W, y);
-      ctx.stroke();
-    }
-    // 自城エリアのみ。敵城エリアは表示しない
-    ctx.fillStyle = "rgba(74,163,255,0.14)";
-    ctx.fillRect(0, H - C.CASTLE_ZONE_H, W, C.CASTLE_ZONE_H);
-    drawEnemyGate(ctx);
-    ctx.strokeStyle = "rgba(255,255,255,0.18)";
-    ctx.setLineDash([8, 8]);
-    ctx.beginPath();
-    ctx.moveTo(0, H / 2);
-    ctx.lineTo(W, H / 2);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = "rgba(255,255,255,0.45)";
-    ctx.font = "bold 22px sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText("自城", W / 2, H - 10);
-
+  // 自分のカード: 部隊の実位置から指示位置(カード)への点線と、半透明のカード。選択中・ドラッグ中は不透明
+  function drawCards(ctx: CanvasRenderingContext2D, s: Snapshot) {
     const mine = s.units.filter((u) => u.p === you);
-    // 部隊の実位置(ゴースト)と指示線
     for (const u of mine) {
       if (u.mode === "dead") continue;
       const d = disp.current.get(`${u.p}:${u.slot}`);
+      if (!d) continue;
       const [cx, cy] = cardPos(u);
-      if (d) {
-        const [ux, uy] = toView(d.x, d.y);
-        ctx.strokeStyle = "rgba(255,255,255,0.25)";
-        ctx.setLineDash([5, 6]);
-        ctx.beginPath();
-        ctx.moveTo(cx, cy);
-        ctx.lineTo(ux, uy);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.fillStyle = "rgba(74,163,255,0.5)";
-        ctx.beginPath();
-        ctx.arc(ux, uy, 8, 0, Math.PI * 2);
-        ctx.fill();
-      }
+      const [ux, uy] = toView(d.x, d.y);
+      ctx.strokeStyle = "rgba(255,255,255,0.45)";
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 6]);
+      ctx.beginPath();
+      ctx.moveTo(ux, uy);
+      ctx.lineTo(cx, cy);
+      ctx.stroke();
+      ctx.setLineDash([]);
     }
-    for (const u of [...mine].sort((a, b) => (a.slot === selRef.current ? 1 : 0) - (b.slot === selRef.current ? 1 : 0))) drawToken(ctx, u);
+    // 選択中のカードを最前面に
+    for (const u of [...mine].sort((a, b) => (a.slot === selRef.current ? 1 : 0) - (b.slot === selRef.current ? 1 : 0))) {
+      drawToken(ctx, u, u.slot === selRef.current || drag.current?.slot === u.slot ? 1 : CARD_ALPHA);
+    }
   }
 
   function cardPos(u: UnitView): [number, number] {
@@ -196,14 +160,14 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
     return [x, Math.max(y, CARD_MIN_Y)];
   }
 
-  function drawToken(ctx: CanvasRenderingContext2D, u: UnitView) {
+  function drawToken(ctx: CanvasRenderingContext2D, u: UnitView, alpha = 1) {
     const card = CARD_BY_ID.get(u.cardId)!;
     const [cx, cy] = cardPos(u);
     const x = cx - CARD_W / 2;
     const y = cy - CARD_H / 2;
     const col = COLOR_HEX[card.color] ?? "#666";
     ctx.save();
-    if (u.mode === "dead") ctx.globalAlpha = 0.45;
+    ctx.globalAlpha = u.mode === "dead" ? Math.max(alpha, 0.85) : alpha;
     ctx.fillStyle = "#111";
     roundRect(ctx, x - 2, y - 2, CARD_W + 4, CARD_H + 4, 6);
     ctx.fill();
@@ -249,13 +213,21 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
       ctx.fillRect(x + CARD_W - 12, y + 3, 9, 9);
     }
     if (u.mode === "dead") {
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      // 撤退中: 暗く沈め、赤い枠と「撤退中」+復活までの秒数を出す
+      ctx.globalAlpha = Math.max(alpha, 0.85);
+      ctx.fillStyle = "rgba(0,0,0,0.68)";
       roundRect(ctx, x, y, CARD_W, CARD_H, 5);
       ctx.fill();
+      ctx.strokeStyle = "#e6554b";
+      ctx.lineWidth = 2;
+      roundRect(ctx, x, y, CARD_W, CARD_H, 5);
+      ctx.stroke();
+      ctx.fillStyle = "#ff8a80";
+      ctx.font = "bold 13px sans-serif";
+      ctx.fillText("撤退中", cx, cy - 6);
       ctx.fillStyle = "#fff";
-      ctx.font = "bold 20px sans-serif";
-      ctx.fillText(String(Math.ceil(u.respawn ?? 0)), cx, cy + 6);
+      ctx.font = "bold 22px sans-serif";
+      ctx.fillText(`${Math.ceil(u.respawn ?? 0)}`, cx, cy + 18);
     }
     if (u.slot === selRef.current) {
       ctx.globalAlpha = 1;
@@ -312,8 +284,10 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
     }
     // 砂煙(部隊の下)
     drawDust(ctx, now);
+    // 自分のカード(指示位置)。部隊より下に、半透明で重ねる
+    drawCards(ctx, s);
     // 部隊(奥から)
-    const list = [...s.units].filter((u) => !(u.p !== you && u.mode === "dead")).sort((a, b) => (disp.current.get(`${a.p}:${a.slot}`)?.y ?? 0) - (disp.current.get(`${b.p}:${b.slot}`)?.y ?? 0));
+    const list = [...s.units].filter((u) => u.mode !== "dead").sort((a, b) => (disp.current.get(`${a.p}:${a.slot}`)?.y ?? 0) - (disp.current.get(`${b.p}:${b.slot}`)?.y ?? 0));
     const ordered = flipOrder(list);
     for (const u of ordered) drawUnit(ctx, u, now);
     // エフェクト
@@ -743,10 +717,10 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
     ctx.restore();
   }
 
-  // ---- 入力(カードフィールド) ----
+  // ---- 入力(フィールド上のカード) ----
   const toLogical = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
-    // 敵城エリアはカードフィールドに無いので、その手前までに制限
+    // 敵城エリアは表示していないので、その手前までに制限
     const y = Math.max(C.CASTLE_ZONE_H + ((e.clientY - r.top) / r.height) * (C.FIELD_H - C.CASTLE_ZONE_H), C.CASTLE_ZONE_H + C.UNIT_RADIUS);
     return [((e.clientX - r.left) / r.width) * C.FIELD_W, y] as const;
   };
@@ -759,7 +733,7 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
     const s = snapRef.current;
     if (!s) return;
     const [px, py] = toLogical(e);
-    const mine = s.units.filter((u) => u.p === you && u.mode !== "dead");
+    const mine = s.units.filter((u) => u.p === you); // 撤退中のカードも選択・ドラッグできる
     const hit = [...mine].reverse().find((u) => {
       const [cx, cy] = cardPos(u);
       return Math.abs(px - cx) <= CARD_W / 2 + 4 && Math.abs(py - cy) <= CARD_H / 2 + 4;
@@ -775,7 +749,7 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
       const dbl = !!lt && lt.slot === hit.slot && now - lt.t <= DBLCLICK_MS && Math.hypot(e.clientX - lt.x, e.clientY - lt.y) <= TAP_SLOP;
       // 槍兵の槍撃は自動発動なので、固有アクションを持つ剣豪・鉄砲隊だけ送る
       const hu = CARD_BY_ID.get(hit.cardId)?.unit;
-      if (dbl && (hu === "剣豪" || hu === "鉄砲隊")) send({ type: "action", slot: hit.slot });
+      if (dbl && hit.mode === "field" && (hu === "剣豪" || hu === "鉄砲隊")) send({ type: "action", slot: hit.slot });
       lastTap.current = null;
       drag.current = { slot: hit.slot, dx: px - cx, dy: py - cy, x: cx, y: cy, lastSent: 0, sx: e.clientX, sy: e.clientY, moved: false, consumed: dbl };
       swing.current.reset();
@@ -798,8 +772,8 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
     // 剣豪はカードを振ると斬撃(ゲージが満タンのときだけサーバーが受け付ける)
     const du = snapRef.current?.units.find((u) => u.p === you && u.slot === d.slot);
     const unit = du && CARD_BY_ID.get(du.cardId)?.unit;
-    if (unit === "剣豪" && swing.current.push(now, px, py)) send({ type: "action", slot: d.slot });
-    if (unit === "鉄砲隊" && gunShake.current.push(now, px, py)) send({ type: "action", slot: d.slot });
+    if (du?.mode === "field" && unit === "剣豪" && swing.current.push(now, px, py)) send({ type: "action", slot: d.slot });
+    if (du?.mode === "field" && unit === "鉄砲隊" && gunShake.current.push(now, px, py)) send({ type: "action", slot: d.slot });
     if (now - d.lastSent > 50) {
       d.lastSent = now;
       sendMove(d.slot, d.x, d.y);
@@ -859,12 +833,8 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
       </div>
       <div className="fields">
         <div className="pane">
-          <div className="pane-title">カードフィールド（ここでカードを動かす）</div>
-          <canvas ref={cardCv} className="cv" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onCancel} />
-        </div>
-        <div className="pane">
-          <div className="pane-title">バトルフィールド（反映される戦場）</div>
-          <canvas ref={fieldCv} className="cv" />
+          <div className="pane-title">フィールド（カードをドラッグして指示。部隊は指示位置へ遅れて向かう）</div>
+          <canvas ref={fieldCv} className="cv" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onCancel} />
         </div>
         <aside className="side">
           <div className="morale">
