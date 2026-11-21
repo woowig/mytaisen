@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { ComPlayer, makeComDeck, makeRng } from "./shared/ai.ts";
 import { CARDS, parseStratUseLimit, STRAT_LOCK_SEC_BY_ID, STRAT_USE_LIMIT_BY_ID } from "./shared/cards.ts";
 import * as C from "./shared/constants.ts";
 import { cmdAction, cmdMove, cmdStrat, createGame, retire, nextSiegeDamage, siegeBaseDamage, siegeCostCoef, siegeNeedSec, snapshotFor, tick, unitOf, validateDeck, type Game, type Unit } from "./shared/game.ts";
@@ -1009,5 +1010,109 @@ describe("シミュレーション", () => {
     b.ty = b.y;
     run(g, 0.2);
     expect(a.ambush).toBe(false);
+  });
+});
+
+
+describe("COM(ひとりで練習)", () => {
+  const comInfo = (seed: number) => {
+    const d = makeComDeck(makeRng(seed));
+    const v = validateDeck(d.ids, C.COM_DECK_MAX_COST);
+    if (!v.ok) throw new Error(v.error);
+    return { ...d, info: v.info };
+  };
+  /** COM(1つ以上)を動かしながら、sec 秒進める */
+  const runWith = (g: Game, coms: ComPlayer[], sec: number) => {
+    for (let i = 0; i < sec * C.TICK_RATE && !g.over; i++) {
+      for (const c of coms) c.update(g);
+      tick(g);
+    }
+  };
+
+  test("COMのデッキは、シードを変えても条件を満たす", () => {
+    let relaxedCount = 0;
+    for (let seed = 1; seed <= 100; seed++) {
+      const { ids, relaxed, info } = comInfo(seed);
+      const cards = ids.map((id) => CARDS.find((c) => c.id === id)!);
+      const cost = cards.reduce((a, c) => a + c.cost, 0);
+      expect(cost).toBeGreaterThanOrEqual(9.5);
+      expect(cost).toBeLessThanOrEqual(C.COM_DECK_MAX_COST);
+      expect(ids.length).toBeGreaterThanOrEqual(4);
+      expect(ids.length).toBeLessThanOrEqual(8);
+      expect(new Set(ids).size).toBe(ids.length);
+      expect(new Set(cards.map((c) => c.name)).size).toBe(ids.length);
+      expect(info.cards.length).toBe(ids.length);
+      if (relaxed) relaxedCount++;
+      else {
+        expect(cards.some((c) => c.unit === "槍兵")).toBe(true);
+        expect(cards.some((c) => c.unit === "騎兵")).toBe(true);
+        expect(cards.some((c) => c.unit === "弓兵" || c.unit === "鉄砲隊")).toBe(true);
+        expect(info.colors).toBeLessThanOrEqual(2);
+      }
+    }
+    expect(relaxedCount).toBeLessThan(10);
+  });
+
+  test("同じシードなら、同じデッキになる", () => {
+    expect(makeComDeck(makeRng(7)).ids).toEqual(makeComDeck(makeRng(7)).ids);
+  });
+
+  test("人間のデッキの総コストの上限は9のまま(COMの上限は10)", () => {
+    expect(C.DECK_MAX_COST).toBe(9);
+    const ids = [...CARDS.filter((c) => c.cost === 2.5)].slice(0, 4).map((c) => c.id); // 10
+    expect(validateDeck(ids).ok).toBe(false);
+    expect(validateDeck(ids, C.COM_DECK_MAX_COST).ok).toBe(true);
+  });
+
+  test("COMは出城して攻城し、動かない相手の城ゲージを減らす", () => {
+    const human = mk([ofType("槍兵").id, ofType("弓兵").id]);
+    const com = comInfo(3).info;
+    const g = createGame(human, com);
+    const c = new ComPlayer(1, makeRng(11));
+    runWith(g, [c], 120);
+    expect(g.units.some((u) => u.p === 1 && u.mode === "field")).toBe(true);
+    expect(g.castle[0]).toBeLessThan(C.CASTLE_HP);
+  });
+
+  test("COMどうしの試合は、最後までエラーなく進み、勝敗が決まる", () => {
+    for (const seed of [1, 2, 3]) {
+      const g = createGame(comInfo(seed * 2).info, comInfo(seed * 2 + 1).info);
+      runWith(g, [new ComPlayer(0, makeRng(seed)), new ComPlayer(1, makeRng(seed + 100))], C.GAME_SEC + 5);
+      expect(g.over).not.toBeNull();
+    }
+  });
+
+  test("COMは、見えない敵(伏兵・敵城内)を狙わない", () => {
+    const hiddenCard = pick((c) => c.skills.includes("伏") && c.unit === "槍兵" && c.cost === 1);
+    const seen = ofType("槍兵", 1, 3);
+    const g = createGame(mk([hiddenCard.id, seen.id]), comInfo(5).info);
+    const c = new ComPlayer(1, makeRng(21));
+    const hidden = unitOf(g, 0, 0)!;
+    const visible = unitOf(g, 0, 1)!;
+    // 伏兵を戦場の中央(COMのすぐ近く)に隠して置き、もう1部隊は見える位置に置く
+    hidden.mode = "field";
+    hidden.ambush = true;
+    hidden.hidden = true;
+    hidden.x = C.FIELD_W / 2;
+    hidden.y = 300;
+    hidden.tx = hidden.x;
+    hidden.ty = hidden.y;
+    visible.mode = "field";
+    visible.x = 80;
+    visible.y = 520;
+    visible.tx = visible.x;
+    visible.ty = visible.y;
+    let ticks = 0;
+    for (; ticks < 20 * 30 && !g.over; ticks++) {
+      hidden.hidden = true; // 伏兵のまま動かない
+      hidden.x = C.FIELD_W / 2;
+      hidden.y = 300;
+      if (snapshotFor(g, 1).units.some((u) => u.p === 0 && u.slot === 0)) break; // 接触で見えるようになったら、そこまで
+      c.update(g);
+      tick(g);
+    }
+    expect(ticks).toBeGreaterThan(100); // 見えない間、COMはしばらく動いていた
+    expect(c.targeted.has("0:0")).toBe(false);
+    expect(c.targeted.has("0:1")).toBe(true);
   });
 });

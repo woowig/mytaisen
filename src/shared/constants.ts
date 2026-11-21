@@ -16,6 +16,21 @@ export const GAME_SEC = COUNT_SEC * GAME_COUNTS; // 237.6s
 // デッキ
 export const DECK_MAX_CARDS = 8;
 export const DECK_MAX_COST = 9;
+/** 「ひとりで練習」のCOMのデッキの総コストの上限(人間より有利) */
+export const COM_DECK_MAX_COST = 10;
+
+// COM(「ひとりで練習」の相手)の思考
+export const COM_THINK_SEC = 0.3; // 判断の間隔
+export const COM_THINK_JITTER = 0.1; // 間隔のゆらぎ(±)
+export const COM_DELAY_MIN = 0.2; // 判断してから操作が反映されるまでの遅れ
+export const COM_DELAY_MAX = 0.5;
+export const COM_AIM_JITTER = 10; // 目的地のずれ(±)
+export const COM_MIN_RETARGET = 25; // 目的地がこれ以上変わったときだけ再指示する
+export const COM_OPEN_SEC = 10; // 開幕の作戦の長さ
+export const COM_ENDGAME_SEC = 30; // 残りがこの秒数以下なら、押し切り・逃げ切り
+export const COM_TACTIC_HOLD_SEC = 3; // 一度決めた作戦を続ける最低秒数
+export const COM_RETREAT_HP = 0.3; // 兵力がこの割合以下なら城に戻って回復
+export const COM_RETURN_HP = 0.8; // 兵力がこの割合以上に戻ったら再び出城
 /** 勢力(色)数 → 最大士気 */
 export const MAX_MORALE_BY_COLORS = [12, 12, 10, 8, 6] as const; // index=色数(4以上は6)
 export const MAX_MORALE_CAP = 15; // 特技「同盟」で増えても超えない
