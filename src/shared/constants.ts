@@ -148,8 +148,9 @@ export const SIEGE_REACH = UNIT_RADIUS + 6; // 城壁からこの距離以内で
 
 // 特技
 export const AMBUSH_SPEED_MUL = 0.7;
-export const AMBUSH_DMG_BASE = 8;
-export const AMBUSH_DMG_PER_INTEL_DIFF = 4;
+/** 伏兵ダメージ(相手の最大兵力に対する%) = (自分の知力 ÷ 相手の知力) × AMBUSH_DMG_RATIO_K + AMBUSH_DMG_BASE_PCT */
+export const AMBUSH_DMG_RATIO_K = 30;
+export const AMBUSH_DMG_BASE_PCT = 10;
 export const STEALTH_REVEAL_DIST = 150;
 export const STEALTH_RECOVER_T = 5;
 export const KI_REGEN_INTERVAL = 2;
