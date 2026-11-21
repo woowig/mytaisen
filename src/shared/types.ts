@@ -116,7 +116,7 @@ export type ClientMsg =
 export type ServerMsg =
   | { type: "hello"; id: string }
   | { type: "room"; room: string; you: PlayerIdx; waiting: boolean }
-  | { type: "start"; you: PlayerIdx; decks: [string[], string[]]; maxMorale: number }
+  | { type: "start"; you: PlayerIdx; decks: [string[], string[]]; maxMorale: number; opponent?: { name: string; cost: number } }
   | { type: "snapshot"; s: Snapshot }
   | { type: "error"; message: string }
   | { type: "ended"; winner: PlayerIdx | null; reason: string };

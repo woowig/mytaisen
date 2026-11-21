@@ -21,7 +21,7 @@ export interface DeckInfo {
   startMorale: number;
 }
 
-export function validateDeck(ids: unknown): { ok: true; info: DeckInfo } | { ok: false; error: string } {
+export function validateDeck(ids: unknown, maxCost: number = C.DECK_MAX_COST): { ok: true; info: DeckInfo } | { ok: false; error: string } {
   if (!Array.isArray(ids) || ids.some((x) => typeof x !== "string")) return { ok: false, error: "デッキの形式が不正です" };
   if (ids.length < 1) return { ok: false, error: "武将を1枚以上選んでください" };
   if (ids.length > C.DECK_MAX_CARDS) return { ok: false, error: `デッキは${C.DECK_MAX_CARDS}枚以内です` };
@@ -38,7 +38,7 @@ export function validateDeck(ids: unknown): { ok: true; info: DeckInfo } | { ok:
     cards.push(c);
   }
   const cost = cards.reduce((s, c) => s + c.cost, 0);
-  if (cost > C.DECK_MAX_COST) return { ok: false, error: `総コストが${C.DECK_MAX_COST}を超えています (${cost})` };
+  if (cost > maxCost) return { ok: false, error: `総コストが${maxCost}を超えています (${cost})` };
   const colors = new Set(cards.map((c) => c.color)).size;
   const baseMorale: number = C.MAX_MORALE_BY_COLORS[Math.min(colors, 4)]!;
   let maxMorale = baseMorale;

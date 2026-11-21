@@ -26,6 +26,8 @@ function loadDeck(): string[] {
 
 function App() {
   const [phase, setPhase] = useState<Phase>({ k: "menu" });
+  /** 「ひとりで練習」のときの相手(COM)。人間同士の対戦では null */
+  const [opponent, setOpponent] = useState<{ name: string; cost: number } | null>(null);
   const [deck, setDeckState] = useState<string[]>(loadDeck);
   const [joinCode, setJoinCode] = useState("");
   const [snap, setSnap] = useState<Snapshot | null>(null);
@@ -65,6 +67,8 @@ function App() {
           fxQueue.current = [];
           setSnap(null);
           setSelected(0);
+          setOpponent(m.opponent ?? null);
+          if (m.opponent) showToast(`${m.opponent.name} コスト${m.opponent.cost}`);
           setPhase({ k: "battle", you: m.you });
           break;
         case "snapshot":
@@ -116,7 +120,7 @@ function App() {
             退出
           </button>
         </header>
-        {snap && <Battle you={phase.you} snap={snap} snapRef={snapRef} fxQueue={fxQueue} send={send} selected={selected} setSelected={setSelected} toast={toast} />}
+        {snap && <Battle you={phase.you} snap={snap} snapRef={snapRef} fxQueue={fxQueue} send={send} selected={selected} setSelected={setSelected} toast={toast} opponent={opponent} />}
         {!snap && <div className="center">接続中…</div>}
         {phase.k === "ended" && (
           <div className="overlay">

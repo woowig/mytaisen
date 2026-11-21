@@ -37,9 +37,11 @@ interface Props {
   selected: number;
   setSelected: (s: number) => void;
   toast: string;
+  /** 「ひとりで練習」の相手(COM)。人間同士の対戦では null */
+  opponent: { name: string; cost: number } | null;
 }
 
-export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelected, toast }: Props) {
+export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelected, toast, opponent }: Props) {
   const cardCv = useRef<HTMLCanvasElement>(null);
   const fieldCv = useRef<HTMLCanvasElement>(null);
   const disp = useRef(new Map<string, { x: number; y: number }>());
@@ -853,7 +855,7 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
           <div className="count-n">{snap.countLeft}</div>
           <div className="muted">COUNT</div>
         </div>
-        <Gauge label="敵城" v={snap.castle[enemy]} max={C.CASTLE_HP} color={EN_COLOR} right />
+        <Gauge label={opponent ? `${opponent.name} コスト${opponent.cost} 城` : "敵城"} v={snap.castle[enemy]} max={C.CASTLE_HP} color={EN_COLOR} right />
       </div>
       <div className="fields">
         <div className="pane">

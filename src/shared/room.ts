@@ -1,5 +1,6 @@
 // プラットフォーム非依存の部屋ロジック。Bun版サーバーと Cloudflare Durable Object の両方から使う。
 import * as C from "./constants.ts";
+import { ComPlayer, makeComDeck, makeRng } from "./ai.ts";
 import { cmdAction, cmdMove, cmdStrat, createGame, snapshotFor, tick, validateDeck, type DeckInfo, type Game } from "./game.ts";
 import type { ClientMsg, PlayerIdx, ServerMsg } from "./types.ts";
 
@@ -14,6 +15,8 @@ export class RoomCore {
   private decks: [DeckInfo | null, DeckInfo | null] = [null, null];
   private deckIds: [string[], string[]] = [[], []];
   game: Game | null = null;
+  private com: ComPlayer | null = null;
+  private comCost = 0;
   private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
@@ -26,7 +29,7 @@ export class RoomCore {
   }
 
   /** 入室。失敗時はエラーメッセージを返す */
-  /** solo=true: 相手なしの練習。相手側は動かない無人の陣(城内にいて見えない) */
+  /** solo=true: 「ひとりで練習」。相手側はCOM(総コスト10のランダムなデッキで、状況を見て戦う) */
   join(peer: Peer, deck: unknown, solo = false): string | null {
     if (peer.room) return "すでに部屋に入っています";
     const v = validateDeck(deck);
@@ -34,9 +37,15 @@ export class RoomCore {
     if (this.game) return "すでに対戦中です";
     if (solo) {
       if (this.players[0] || this.players[1]) return "部屋が満員です";
+      const rand = makeRng(Math.floor(Math.random() * 4294967296));
+      const comDeck = makeComDeck(rand);
+      const comInfo = validateDeck(comDeck.ids, C.COM_DECK_MAX_COST);
+      if (!comInfo.ok) return comInfo.error;
       this.players[0] = peer;
-      this.decks = [v.info, v.info];
-      this.deckIds = [(deck as string[]).slice(), (deck as string[]).slice()];
+      this.decks = [v.info, comInfo.info];
+      this.deckIds = [(deck as string[]).slice(), comDeck.ids];
+      this.com = new ComPlayer(1, rand);
+      this.comCost = comInfo.info.cards.reduce((a, c) => a + c.cost, 0);
       peer.room = this;
       peer.idx = 0;
       peer.send({ type: "room", room: this.code, you: 0, waiting: false });
@@ -61,8 +70,9 @@ export class RoomCore {
     if (!da || !db) return;
     const game = createGame(da, db);
     this.game = game;
-    this.players.forEach((p, i) => p?.send({ type: "start", you: i as PlayerIdx, decks: this.deckIds, maxMorale: game.maxMorale[i as PlayerIdx] }));
+    this.players.forEach((p, i) => p?.send({ type: "start", you: i as PlayerIdx, decks: this.deckIds, maxMorale: game.maxMorale[i as PlayerIdx], ...(this.com ? { opponent: { name: "COM", cost: this.comCost } } : {}) }));
     this.timer = setInterval(() => {
+      this.com?.update(game);
       tick(game);
       this.players.forEach((p, i) => p?.send({ type: "snapshot", s: snapshotFor(game, i as PlayerIdx) }));
       game.fx = []; // 送信済み。次の tick までに操作で積まれた演出も、次のスナップショットで届く
