@@ -166,9 +166,10 @@ export class ComPlayer {
 
   /** ゲームの tick の直前に呼ぶ */
   update(g: Game) {
-    const s = snapshotFor(g, this.p);
+    let s = snapshotFor(g, this.p);
     if (s.over) return;
-    this.runQueue(g, s.t);
+    // 遅れて実行する指示を反映してから判断する(反映後の状態を見る)
+    if (this.runQueue(g, s.t)) s = snapshotFor(g, this.p);
     if (s.t < this.nextThink) return;
     this.nextThink = s.t + C.COM_THINK_SEC + (this.rand() * 2 - 1) * C.COM_THINK_JITTER;
     this.think(s);
@@ -181,11 +182,13 @@ export class ComPlayer {
     return { v, slot: v.slot, unit: card.unit as UnitType, card, x: v.x, y: this.flip(v.y), fx: v.fx, fy: this.p === 0 ? -v.fy : v.fy, hp: v.hp / v.maxHp };
   }
 
-  private runQueue(g: Game, t: number) {
+  /** 時刻が来た指示を実行する。1つでも実行したら true */
+  private runQueue(g: Game, t: number): boolean {
     const due = this.queue.filter((q) => q.at <= t);
-    if (due.length === 0) return;
+    if (due.length === 0) return false;
     this.queue = this.queue.filter((q) => q.at > t);
     for (const q of due) q.run(g);
+    return true;
   }
 
   private later(s: Snapshot, run: (g: Game) => void) {
