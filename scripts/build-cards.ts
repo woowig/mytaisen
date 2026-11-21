@@ -7,7 +7,7 @@ const raw: any[] = await Bun.file(SRC).json();
 const cards: Card[] = raw.map((r) => ({
   id: String(r.number),
   name: r.name,
-  kana: r.kana,
+  kana: r.kana || r.name, // 読みがないカード(名前がひらがな・カタカナなど)は、名前を読みにする
   color: r.color,
   period: r.period,
   rarity: r.rarity,
@@ -31,6 +31,7 @@ for (const c of cards) {
   if (ids.has(c.id)) throw new Error(`duplicate id ${c.id}`);
   ids.add(c.id);
   if (!(c.cost > 0) || !(c.strong > 0) || !(c.intel > 0)) throw new Error(`bad stats ${c.id}`);
+  if (typeof c.name !== "string" || typeof c.kana !== "string") throw new Error(`bad name/kana ${c.id}`);
   if (!["槍兵", "騎兵", "弓兵", "鉄砲隊", "剣豪"].includes(c.unit)) throw new Error(`bad unit ${c.id} ${c.unit}`);
 }
 await Bun.write(new URL("../data/cards.json", import.meta.url), JSON.stringify(cards));

@@ -5,6 +5,7 @@ import type { ClientMsg, Fx, PlayerIdx, ServerMsg, Snapshot } from "../shared/ty
 import { loadManifest } from "./art.ts";
 import { Battle } from "./components/Battle.tsx";
 import { DeckBuilder } from "./components/DeckBuilder.tsx";
+import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
 import { Conn } from "./net.ts";
 
 type Phase =
@@ -174,7 +175,9 @@ function App() {
           {toast && <div className="bad">{toast}</div>}
         </div>
       </section>
-      <DeckBuilder deck={deck} setDeck={setDeck} />
+      <ErrorBoundary title="デッキ編成画面">
+        <DeckBuilder deck={deck} setDeck={setDeck} />
+      </ErrorBoundary>
     </div>
   );
 }

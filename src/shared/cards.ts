@@ -1,7 +1,11 @@
 import raw from "../../data/cards.json";
 import type { Card } from "./types.ts";
 
-export const CARDS = raw as Card[];
+/** データ上の読み(`kana`)は、名前がひらがな・カタカナの武将などで `null` になっていることがある */
+type RawCard = Omit<Card, "kana"> & { kana: string | null };
+
+/** 読みが `null` または空のカードは、名前を読みとして使い、`kana` が必ず文字列になるようにする */
+export const CARDS: Card[] = (raw as RawCard[]).map((c) => ({ ...c, kana: c.kana || c.name }));
 export const CARD_BY_ID: ReadonlyMap<string, Card> = new Map(CARDS.map((c) => [c.id, c]));
 
 const KANJI_NUM: Record<string, number> = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5 };

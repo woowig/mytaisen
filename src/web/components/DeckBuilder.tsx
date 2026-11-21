@@ -4,12 +4,12 @@ import { DECK_MAX_CARDS, DECK_MAX_COST } from "../../shared/constants.ts";
 import { validateDeck } from "../../shared/game.ts";
 import type { Card, UnitType } from "../../shared/types.ts";
 import { COLOR_HEX, hasArt } from "../art.ts";
+import { searchCards } from "../card-search.ts";
 import { CardArt } from "./CardArt.tsx";
 
 const COLORS = Object.keys(COLOR_HEX);
 const UNITS: UnitType[] = ["槍兵", "騎兵", "弓兵", "鉄砲隊", "剣豪"];
 const COSTS = [1, 1.5, 2, 2.5, 3, 3.5, 4];
-const PAGE = 48;
 
 export function DeckBuilder({ deck, setDeck }: { deck: string[]; setDeck: (d: string[]) => void }) {
   const [q, setQ] = useState("");
@@ -17,24 +17,13 @@ export function DeckBuilder({ deck, setDeck }: { deck: string[]; setDeck: (d: st
   const [units, setUnits] = useState<string[]>([]);
   const [costs, setCosts] = useState<number[]>([]);
   const [artOnly, setArtOnly] = useState(false);
-  const [limit, setLimit] = useState(PAGE);
 
   const toggle = <T,>(list: T[], v: T, set: (l: T[]) => void) => {
     set(list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
-    setLimit(PAGE);
   };
 
-  const filtered = useMemo(() => {
-    const s = q.trim();
-    return CARDS.filter(
-      (c) =>
-        (!s || c.name.includes(s) || c.kana.includes(s) || c.id.includes(s)) &&
-        (!colors.length || colors.includes(c.color)) &&
-        (!units.length || units.includes(c.unit)) &&
-        (!costs.length || costs.includes(c.cost)) &&
-        (!artOnly || hasArt(c.id)),
-    );
-  }, [q, colors, units, costs, artOnly]);
+  // 条件に合うカードをすべて(コストの高い順 → 勢力 → 番号の順で)表示する
+  const filtered = useMemo(() => searchCards(CARDS, { query: q, colors, units, costs, hasArt: artOnly ? hasArt : undefined }), [q, colors, units, costs, artOnly]);
 
   const cards = deck.map((id) => CARD_BY_ID.get(id)).filter((c): c is Card => !!c);
   const cost = cards.reduce((s, c) => s + c.cost, 0);
@@ -72,7 +61,7 @@ export function DeckBuilder({ deck, setDeck }: { deck: string[]; setDeck: (d: st
     <div className="deckbuilder">
       <section className="db-pool">
         <div className="filters">
-          <input placeholder="名前・読み・番号で検索" value={q} onChange={(e) => (setQ(e.target.value), setLimit(PAGE))} />
+          <input placeholder="名前・読み・番号で検索" value={q} onChange={(e) => setQ(e.target.value)} />
           <div className="chips">
             {COLORS.map((c) => (
               <button key={c} className={`chip${colors.includes(c) ? " on" : ""}`} style={{ ["--c" as any]: COLOR_HEX[c] }} onClick={() => toggle(colors, c, setColors)}>
@@ -94,22 +83,17 @@ export function DeckBuilder({ deck, setDeck }: { deck: string[]; setDeck: (d: st
               </button>
             ))}
             <label className="chip-check">
-              <input type="checkbox" checked={artOnly} onChange={(e) => (setArtOnly(e.target.checked), setLimit(PAGE))} />
+              <input type="checkbox" checked={artOnly} onChange={(e) => setArtOnly(e.target.checked)} />
               画像ありのみ
             </label>
           </div>
           <div className="muted">{filtered.length} 枚</div>
         </div>
         <div className="pool-grid">
-          {filtered.slice(0, limit).map((c) => (
+          {filtered.map((c) => (
             <CardArt key={c.id} card={c} size="md" onClick={() => add(c)} dim={deck.includes(c.id)} />
           ))}
         </div>
-        {filtered.length > limit && (
-          <button className="btn" onClick={() => setLimit(limit + PAGE)}>
-            もっと見る
-          </button>
-        )}
       </section>
 
       <aside className="db-deck">
