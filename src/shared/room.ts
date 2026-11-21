@@ -37,14 +37,11 @@ export class RoomCore {
     if (this.game) return "すでに対戦中です";
     if (solo) {
       if (this.players[0] || this.players[1]) return "部屋が満員です";
-      this.players[0] = peer;
       const rand = makeRng(Math.floor(Math.random() * 4294967296));
       const comDeck = makeComDeck(rand);
       const comInfo = validateDeck(comDeck.ids, C.COM_DECK_MAX_COST);
-      if (!comInfo.ok) {
-        this.players[0] = null;
-        return comInfo.error;
-      }
+      if (!comInfo.ok) return comInfo.error;
+      this.players[0] = peer;
       this.decks = [v.info, comInfo.info];
       this.deckIds = [(deck as string[]).slice(), comDeck.ids];
       this.com = new ComPlayer(1, rand);

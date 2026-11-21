@@ -154,6 +154,10 @@ export class ComPlayer {
   private recovering = new Set<number>();
   private rebound = new Map<number, number>(); // 騎兵: 突撃後に離れ直す期限
   private wiggle = new Map<number, number>(); // 槍兵: 動き続けるための往復の向き
+  /** まだゲームに反映していない(遅れて実行する)指示 */
+  private pendingMove = new Map<number, { x: number; y: number }>(); // slot → 目的地(COM側の座標)
+  private pendingStrat = new Map<number, number>(); // slot → 消費する士気
+  private pendingAction = new Set<number>();
 
   constructor(
     readonly p: PlayerIdx,
@@ -192,8 +196,13 @@ export class ComPlayer {
     const jx = (this.rand() * 2 - 1) * C.COM_AIM_JITTER;
     const jy = (this.rand() * 2 - 1) * C.COM_AIM_JITTER;
     const wx = clampX(x + jx);
-    const wy = this.flip(Math.min(C.FIELD_H, Math.max(0, y + jy)));
-    this.later(s, (g) => cmdMove(g, this.p, slot, wx, wy));
+    const ly = Math.min(C.FIELD_H, Math.max(0, y + jy));
+    const wy = this.flip(ly);
+    this.pendingMove.set(slot, { x: wx, y: ly });
+    this.later(s, (g) => {
+      this.pendingMove.delete(slot);
+      cmdMove(g, this.p, slot, wx, wy);
+    });
   }
 
   private think(s: Snapshot) {
@@ -222,7 +231,7 @@ export class ComPlayer {
       wants.push({ u, x: dest.x, y: dest.y, urgent: urgent || (this.tactic === "open" && u.v.mode === "castle") });
     }
     // 現在の目的地から離れているものだけ、最大2〜3部隊に指示する(開幕と撤退は全部隊)
-    const cur = (u: L) => ({ x: u.v.tx ?? u.x, y: this.flip(u.v.ty ?? u.v.y) });
+    const cur = (u: L) => this.pendingMove.get(u.slot) ?? { x: u.v.tx ?? u.x, y: this.flip(u.v.ty ?? u.v.y) };
     const changed = wants.filter((w) => w.u.hp > 0 && dist(cur(w.u), w) > C.COM_MIN_RETARGET);
     const urgent = changed.filter((w) => w.urgent);
     const rest = shuffle(changed.filter((w) => !w.urgent), this.rand).slice(0, this.rand() < 0.5 ? 2 : 3);
@@ -371,6 +380,15 @@ export class ComPlayer {
   }
 
   // ---- 兵種アクション ----
+  private queueAction(s: Snapshot, slot: number) {
+    if (this.pendingAction.has(slot)) return;
+    this.pendingAction.add(slot);
+    this.later(s, (g) => {
+      this.pendingAction.delete(slot);
+      cmdAction(g, this.p, slot);
+    });
+  }
+
   private actions(s: Snapshot, ctx: Ctx) {
     for (const u of ctx.mine) {
       if (u.v.melee || u.v.sieging) continue;
@@ -378,14 +396,14 @@ export class ComPlayer {
         const near = ctx.foes.filter((f) => dist(u, f) <= C.SLASH_RANGE);
         if (near.length >= 2 || near.some((f) => f.unit === "騎兵" && f.v.charging)) {
           for (const f of near) this.targeted.add(keyOf(f.v));
-          this.later(s, (g) => cmdAction(g, this.p, u.slot));
+          this.queueAction(s, u.slot);
         }
       }
       if (u.unit === "鉄砲隊" && (u.v.actionCd ?? 1) <= 0) {
         const inRange = ctx.foes.filter((f) => dist(u, f) <= 300);
         if (inRange.length > 0) {
           for (const f of inRange) this.targeted.add(keyOf(f.v));
-          this.later(s, (g) => cmdAction(g, this.p, u.slot));
+          this.queueAction(s, u.slot);
         }
       }
     }
@@ -393,9 +411,13 @@ export class ComPlayer {
 
   // ---- 計略 ----
   private strats(s: Snapshot, ctx: Ctx) {
-    const morale = s.morale;
+    // 指示済み(まだ反映されていない)計略の分の士気は、使えないものとして数える
+    let queuedMp = 0;
+    for (const mp of this.pendingStrat.values()) queuedMp += mp;
+    const morale = s.morale - queuedMp;
     const ready = ctx.mine.filter((u) => {
       const st = u.card.strat;
+      if (this.pendingStrat.has(u.slot)) return false;
       if (u.v.stratActive || (u.v.stratLock ?? 0) > 0 || u.v.stratLeft === 0) return false;
       if (st.categories.includes("短計") && (u.v.stratCd ?? 0) > 0) return false;
       return true;
@@ -410,7 +432,11 @@ export class ComPlayer {
       if (morale < mp) continue;
       if (!spend && mp < big && morale - mp < big) continue;
       if (!this.stratFits(u, ctx, relaxed)) continue;
-      this.later(s, (g) => cmdStrat(g, this.p, u.slot));
+      this.pendingStrat.set(u.slot, mp);
+      this.later(s, (g) => {
+        this.pendingStrat.delete(u.slot);
+        cmdStrat(g, this.p, u.slot);
+      });
       return; // 1回の判断で使う計略は1つ
     }
   }
