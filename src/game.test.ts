@@ -1189,6 +1189,15 @@ describe("伏兵", () => {
     }
   });
 
+  test("伏兵ダメージは、相手の最大兵力に対する割合(最大兵力が違えば、ダメージも変わる)", () => {
+    const { g, b } = pair(6, 6); // 40%
+    b.maxHp = 200;
+    b.hp = 200;
+    tick(g);
+    expect(200 - b.hp).toBeGreaterThanOrEqual(80);
+    expect(200 - b.hp).toBeLessThan(81);
+  });
+
   test("伏兵ダメージが100%以上のときは、相手の兵力をすべて削り、相手が撤退する", () => {
     const { g, b } = pair(10, 2); // 160%
     tick(g);
