@@ -795,7 +795,10 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
   // ---- キー操作 ----
   const selfActions = useRef({ strat: () => {}, action: () => {} });
   selfActions.current = {
-    strat: () => selRef.current >= 0 && send({ type: "strat", slot: selRef.current }),
+    strat: () => {
+      const su = snapRef.current?.units.find((u) => u.p === you && u.slot === selRef.current);
+      if (su && su.mode !== "dead") send({ type: "strat", slot: selRef.current });
+    },
     action: () => selRef.current >= 0 && send({ type: "action", slot: selRef.current }),
   };
   useEffect(() => {
