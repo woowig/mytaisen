@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, type MutableRefObject } from "react";
 import { CARD_BY_ID } from "../../shared/cards.ts";
 import * as C from "../../shared/constants.ts";
-import type { ClientMsg, Fx, PlayerIdx, Snapshot, UnitView } from "../../shared/types.ts";
+import type { ClientMsg, FenceView, Fx, PlayerIdx, Snapshot, UnitView } from "../../shared/types.ts";
 import { ShakeDetector, SWING } from "../shake.ts";
 import { artImage, COLOR_HEX, UNIT_GLYPH } from "../art.ts";
 import { CardArt } from "./CardArt.tsx";
@@ -84,7 +84,7 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
       last = now;
       const s = snapRef.current;
       if (!s) return;
-      for (const f of fxQueue.current.splice(0)) fxLive.current.push({ ...f, born: now, ttl: f.k === "strat" ? 900 : f.k === "shot" ? 250 : 450 });
+      for (const f of fxQueue.current.splice(0)) fxLive.current.push({ ...f, born: now, ttl: f.k === "strat" ? 900 : f.k === "shot" ? 250 : f.k === "fence" ? 500 : 450 });
       fxLive.current = fxLive.current.filter((f) => now - f.born < f.ttl);
       // 補間
       const k = 1 - Math.exp(-dt * 16);
@@ -287,12 +287,7 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
     // 城
     drawCastle(ctx, W / 2, H - z, ME_COLOR);
     // 柵
-    for (const f of s.fences) {
-      const [x1, y1] = toView(f.x, f.y);
-      const [x2, y2] = toView(f.x + f.w, f.y + f.h);
-      ctx.fillStyle = "#6b4a2b";
-      ctx.fillRect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.max(6, Math.abs(y2 - y1)));
-    }
+    for (const f of s.fences) drawFence(ctx, f, now);
     // 鉄砲隊のターゲットライン(捕捉している敵へ)
     for (const u of s.units) {
       if (u.p !== you || u.lock === undefined) continue;
@@ -560,6 +555,113 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
     ctx.restore();
   }
 
+  /** 馬防柵: 横木2本と杭7本。杭の先は敵の方(自軍は上、敵は下)。耐久が減ると杭が傾き・折れ、ゲージが出る */
+  function drawFence(ctx: CanvasRenderingContext2D, f: FenceView, now: number) {
+    const [ax, ay] = toView(f.x, f.y);
+    const [bx, by] = toView(f.x + f.w, f.y + f.h);
+    const x0 = Math.min(ax, bx);
+    const w = Math.abs(bx - ax);
+    const h = Math.max(6, Math.abs(by - ay));
+    const cy = Math.min(ay, by) + h / 2;
+    const mine = f.p === you;
+    const tip = mine ? -1 : 1;
+    const base = cy - tip * (h / 2 + 2);
+    const tipEnd = cy + tip * (h / 2 + 9);
+    const r = f.hp;
+    const N = 7;
+    const WOOD = "#9a6a36";
+    const EDGE = "#3d2711";
+    ctx.save();
+    if (f.breaking) ctx.translate(Math.sin(now / 35 + f.id) * 1.6, 0);
+    // 足元に軍の色の線
+    ctx.strokeStyle = mine ? ME_COLOR : EN_COLOR;
+    ctx.globalAlpha = 0.9;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(x0 - 2, base - tip * 3);
+    ctx.lineTo(x0 + w + 2, base - tip * 3);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    // 杭
+    for (let i = 0; i < N; i++) {
+      const sx = x0 + 3 + (i * (w - 6)) / (N - 1);
+      const broken = r < 0.33 && i % 3 === 2;
+      const tilted = r < 0.66 && i % 3 === 1;
+      const end = broken ? base + (tipEnd - base) * 0.45 : tipEnd;
+      ctx.save();
+      ctx.translate(sx, base);
+      if (tilted) ctx.rotate((i % 2 ? 1 : -1) * (r < 0.33 ? 0.42 : 0.26));
+      ctx.translate(-sx, -base);
+      ctx.beginPath();
+      ctx.moveTo(sx - 2.6, base);
+      ctx.lineTo(sx + 2.6, base);
+      if (broken) {
+        ctx.lineTo(sx + 2.6, end);
+        ctx.lineTo(sx + 0.6, end + tip * 3);
+        ctx.lineTo(sx - 0.8, end - tip * 1);
+        ctx.lineTo(sx - 2.6, end + tip * 2);
+      } else {
+        ctx.lineTo(sx + 2.6, end - tip * 6);
+        ctx.lineTo(sx, end);
+        ctx.lineTo(sx - 2.6, end - tip * 6);
+      }
+      ctx.closePath();
+      ctx.fillStyle = WOOD;
+      ctx.fill();
+      ctx.strokeStyle = EDGE;
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      ctx.restore();
+    }
+    // 横木2本(耐久が3割を切ると傾く)
+    for (let j = 0; j < 2; j++) {
+      const ry = cy + (j === 0 ? -1 : 1) * tip * (h * 0.22 + 1);
+      const sag = r < 0.33 ? (j === 0 ? -3 : 3) : 0;
+      ctx.beginPath();
+      ctx.moveTo(x0 - 1, ry + sag);
+      ctx.lineTo(x0 + w + 1, ry - sag);
+      ctx.lineWidth = 3.4;
+      ctx.strokeStyle = EDGE;
+      ctx.stroke();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = WOOD;
+      ctx.stroke();
+      if (r < 0.66) {
+        // ひび
+        ctx.strokeStyle = EDGE;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (const fx of [0.3, 0.7]) {
+          const cx = x0 + w * fx;
+          ctx.moveTo(cx - 3, ry - 2);
+          ctx.lineTo(cx, ry + 1);
+          ctx.lineTo(cx + 3, ry - 2);
+        }
+        ctx.stroke();
+      }
+    }
+    // 壊されている最中は木くずが少しずつ飛ぶ
+    if (f.breaking) {
+      ctx.fillStyle = "#b07b42";
+      for (let i = 0; i < 5; i++) {
+        const t = (now / 420 + i / 5) % 1;
+        const px = x0 + ((i * 37 + f.id * 11) % 100) * (w / 100);
+        ctx.globalAlpha = 1 - t;
+        ctx.fillRect(px, cy + tip * (4 + t * 10) - 1, 2.4, 2.4);
+      }
+      ctx.globalAlpha = 1;
+    }
+    // 耐久ゲージ(減ったら表示)
+    if (r < 1) {
+      const gy = tipEnd + tip * 5 - 2;
+      ctx.fillStyle = "rgba(0,0,0,0.65)";
+      ctx.fillRect(x0 - 1, gy - 1, w + 2, 6);
+      ctx.fillStyle = r > 0.5 ? "#59d36b" : r > 0.3 ? "#ffd24a" : "#e6554b";
+      ctx.fillRect(x0, gy, w * Math.max(0, r), 4);
+    }
+    ctx.restore();
+  }
+
   function drawFx(ctx: CanvasRenderingContext2D, f: FxLive, now: number) {
     const t = (now - f.born) / f.ttl;
     const [x, y] = toView(f.x, f.y);
@@ -598,6 +700,25 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
         ctx.arc(x, y, 14 + t * 30, 0, Math.PI * 2);
         ctx.fill();
         break;
+      case "fence": {
+        // 木の破片が飛び散る
+        for (let i = 0; i < 10; i++) {
+          const a = (i / 10) * Math.PI * 2 + i * 0.7;
+          const sp = 18 + (i % 3) * 12;
+          const px = x + Math.cos(a) * sp * t * 1.6;
+          const py = y + Math.sin(a) * sp * t * 1.6 + t * t * 26;
+          ctx.save();
+          ctx.translate(px, py);
+          ctx.rotate(a + t * 7);
+          ctx.fillStyle = "#9a6a36";
+          ctx.strokeStyle = "#3d2711";
+          ctx.lineWidth = 1;
+          ctx.fillRect(-4, -1.5, 8, 3);
+          ctx.strokeRect(-4, -1.5, 8, 3);
+          ctx.restore();
+        }
+        break;
+      }
       case "castle":
         ctx.fillStyle = f.big ? "#ffe36b" : "#fff";
         ctx.beginPath();

@@ -24,7 +24,7 @@ export interface Card {
   strat: Strat;
 }
 
-export type FxKind = "hit" | "slash" | "shot" | "charge" | "intercept" | "siege" | "strat" | "castle" | "arrow" | "reveal";
+export type FxKind = "hit" | "slash" | "shot" | "charge" | "intercept" | "siege" | "strat" | "castle" | "arrow" | "reveal" | "fence";
 export interface Fx {
   k: FxKind;
   x: number;
@@ -79,11 +79,17 @@ export interface UnitView {
 }
 
 export interface FenceView {
+  /** 柵の識別(持ち主の部隊id) */
+  id: number;
   p: PlayerIdx;
   x: number;
   y: number;
   w: number;
   h: number;
+  /** 耐久値の割合(0〜1) */
+  hp: number;
+  /** いま敵部隊に壊されている最中か */
+  breaking: boolean;
 }
 
 export interface Snapshot {

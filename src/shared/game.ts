@@ -108,7 +108,12 @@ export interface Unit {
 
 interface Fence {
   p: PlayerIdx;
+  /** 持ち主の部隊id(柵の識別にも使う) */
   owner: number;
+  /** 耐久値(0〜FENCE_HP)。時間では回復しない */
+  hp: number;
+  /** いま敵部隊に壊されている最中か */
+  breaking: boolean;
   x: number;
   y: number;
   w: number;
@@ -214,7 +219,7 @@ export function createGame(deckA: DeckInfo, deckB: DeckInfo): Game {
 function addFence(fences: Fence[], u: Unit) {
   const dir = u.p === 0 ? -1 : 1;
   const home = u.y;
-  fences.push({ p: u.p, owner: u.id, x: u.x - C.FENCE_W / 2, y: home + dir * C.FENCE_OFFSET - C.FENCE_H / 2, w: C.FENCE_W, h: C.FENCE_H });
+  fences.push({ p: u.p, owner: u.id, hp: C.FENCE_HP, breaking: false, x: u.x - C.FENCE_W / 2, y: home + dir * C.FENCE_OFFSET - C.FENCE_H / 2, w: C.FENCE_W, h: C.FENCE_H });
 }
 
 // ---------- 補助 ----------
@@ -515,6 +520,7 @@ export function tick(g: Game, dt: number = C.DT) {
   updatePikes(g, dt);
   updateRanged(g, dt);
   keepOutOfEnemyCastle(g);
+  updateFences(g, dt);
   updateSiege(g, dt);
   updateStealth(g);
   updateRegen(g, dt);
@@ -842,6 +848,25 @@ export function nextSiegeDamage(g: Game, u: Unit): number {
   return floor2(base * gate);
 }
 
+/** 柵に接している敵部隊(出城中のもの)の数だけ、柵の耐久値が減る。0になった柵は壊れて消える */
+function updateFences(g: Game, dt: number) {
+  if (g.fences.length === 0) return;
+  const m = C.FENCE_TOUCH;
+  for (const f of g.fences) {
+    let touching = 0;
+    for (const u of g.units) {
+      if (u.p === f.p || u.mode !== "field" || u.hp <= 0) continue;
+      if (u.x > f.x - m && u.x < f.x + f.w + m && u.y > f.y - m && u.y < f.y + f.h + m) touching++;
+    }
+    f.breaking = touching > 0;
+    f.hp -= touching * (C.FENCE_HP / C.FENCE_BREAK_SEC) * dt;
+  }
+  for (const f of g.fences) {
+    if (f.hp <= 0) emit(g, { k: "fence", x: f.x + f.w / 2, y: f.y + f.h / 2, p: f.p });
+  }
+  g.fences = g.fences.filter((f) => f.hp > 0);
+}
+
 function updateSiege(g: Game, dt: number) {
   const cand = (u: Unit) => u.mode === "field" && !u.melee && atWall(u);
   // 城門担当(守る側ごとに1部隊)。続投できなければ中央に近い部隊へ交代
@@ -964,7 +989,7 @@ export function snapshotFor(g: Game, me: PlayerIdx): Snapshot {
     }
     units.push(v);
   }
-  const fences: FenceView[] = g.fences.map((f) => ({ p: f.p, x: f.x, y: f.y, w: f.w, h: f.h }));
+  const fences: FenceView[] = g.fences.map((f) => ({ id: f.owner, p: f.p, x: f.x, y: f.y, w: f.w, h: f.h, hp: round(Math.max(0, f.hp) / C.FENCE_HP, 2), breaking: f.breaking }));
   return {
     t: round(g.t, 2),
     countLeft: Math.max(0, Math.ceil((C.GAME_SEC - g.t) / C.COUNT_SEC)),
