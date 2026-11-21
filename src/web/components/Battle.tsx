@@ -755,10 +755,8 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
       swing.current.reset();
       gunShake.current.reset();
     } else {
+      // カード以外(空き地・部隊)のクリックでは、移動指示を出さず、選択も変えない。カードの移動はドラッグだけ
       lastTap.current = null;
-      if (selRef.current < 0) return;
-      // 空きをクリックで選択中カードを移動指示
-      sendMove(selRef.current, px, py);
     }
   };
   const onMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
