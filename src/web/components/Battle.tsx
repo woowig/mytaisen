@@ -93,7 +93,12 @@ export function Battle({ you, snap, snapRef, fxQueue, send, selected, setSelecte
       for (const u of s.units) {
         const key = `${u.p}:${u.slot}`;
         const d = disp.current.get(key);
-        if (!d || Math.hypot(d.x - u.x, d.y - u.y) > 200) {
+        if (u.mode === "castle") {
+          // 城内の部隊は、カードの位置へ一瞬で移動するので、補間せずすぐ表示する(速度もなし)
+          disp.current.set(key, { x: u.x, y: u.y });
+          speed.current.set(key, 0);
+          dustLast.current.delete(key);
+        } else if (!d || Math.hypot(d.x - u.x, d.y - u.y) > 200) {
           disp.current.set(key, { x: u.x, y: u.y });
           dustLast.current.delete(key); // 飛んだ先で砂煙の筋がつながらないように
         } else {

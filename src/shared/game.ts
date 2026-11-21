@@ -579,6 +579,22 @@ function respawn(g: Game, u: Unit) {
 function stepUnit(g: Game, u: Unit, dt: number, contacts: Map<number, number[]>) {
   const inMelee = (contacts.get(u.id)?.length ?? 0) > 0;
   u.melee = inMelee && u.mode === "field";
+  // 城内の部隊は、カードも城内にあるとき、歩かずにカードの位置へ一瞬で移動する(加速・柵・槍撃は関係しない)
+  if (u.mode === "castle" && inCastleZone(u.p, u.ty)) {
+    const mx = u.tx - u.x;
+    const my = u.ty - u.y;
+    const md = Math.hypot(mx, my);
+    if (md > 0) {
+      u.fx = mx / md; // 向きは、移動した方向に合わせる(移動距離が0のときは変えない)
+      u.fy = my / md;
+    }
+    u.x = u.tx;
+    u.y = u.ty;
+    u.vel = 0;
+    u.charging = false;
+    u.lastSpeed = 0;
+    return;
+  }
   let speed = C.BASE_SPEED[u.card.unit];
   if (has(u, "疾")) speed *= C.SPEED_SKILL_MUL;
   speed *= buffSpeed(u) * u.slowF;

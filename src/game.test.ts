@@ -55,6 +55,129 @@ describe("validateDeck", () => {
   });
 });
 
+describe("城内の移動", () => {
+  /** 自軍(先攻)の1部隊だけのゲーム。先攻の城エリアは y が大きい側 */
+  const solo = (unit: UnitType = "槍兵") => {
+    const g = createGame(mk([ofType(unit).id]), mk([ofType("弓兵").id]));
+    return { g, u: unitOf(g, 0, 0)! };
+  };
+  const castleY = C.FIELD_H - 40; // 先攻の城エリア内
+
+  test("城内の部隊は、城内の別の位置へ移動を指示すると、次のtickでその位置にいる", () => {
+    const { g, u } = solo();
+    expect(cmdMove(g, 0, 0, 100, castleY)).toBeNull();
+    tick(g);
+    expect(u.mode).toBe("castle");
+    expect(u.x).toBe(100);
+    expect(u.y).toBe(castleY);
+    // ドラッグ中のように、続けて別の位置を指示しても、そのたびに一瞬で移動する
+    cmdMove(g, 0, 0, 500, castleY - 20);
+    tick(g);
+    expect(u.x).toBe(500);
+    expect(u.y).toBe(castleY - 20);
+  });
+
+  test("向きは移動した方向に合わせ、移動距離が0のときは変えない", () => {
+    const { g, u } = solo();
+    cmdMove(g, 0, 0, u.x + 120, u.y);
+    tick(g);
+    expect(u.fx).toBeCloseTo(1, 5);
+    expect(u.fy).toBeCloseTo(0, 5);
+    cmdMove(g, 0, 0, u.x, u.y); // 同じ位置
+    tick(g);
+    expect(u.fx).toBeCloseTo(1, 5);
+    expect(u.fy).toBeCloseTo(0, 5);
+  });
+
+  test("城内の騎兵は、一瞬で移動しても、速度が上がらず突撃可能状態にならない", () => {
+    const { g, u } = solo("騎兵");
+    for (let i = 0; i < 40; i++) {
+      cmdMove(g, 0, 0, i % 2 ? 80 : 520, castleY);
+      tick(g);
+      expect(u.mode).toBe("castle");
+      expect(u.vel).toBe(0);
+      expect(u.charging).toBe(false);
+      expect(u.lastSpeed).toBe(0);
+    }
+  });
+
+  test("城内で位置を動かしてから城の外へ指示すると、城内で最後にいた位置から歩き出す", () => {
+    const { g, u } = solo();
+    cmdMove(g, 0, 0, 200, castleY);
+    tick(g);
+    cmdMove(g, 0, 0, 200, C.FIELD_H / 2); // 城の外(遠く)
+    tick(g);
+    expect(u.mode as string).toBe("field");
+    expect(Math.abs(u.y - castleY)).toBeLessThan(10); // 一瞬で城の外へは出ない
+    expect(u.x).toBeCloseTo(200, 0);
+    run(g, 1);
+    expect(castleY - u.y).toBeGreaterThan(20); // 歩いている
+  });
+
+  test("カードを城内から戦場の遠くへ一度に置くと、城内の今の位置から歩き出す", () => {
+    const { g, u } = solo();
+    const y0 = u.y;
+    const x0 = u.x;
+    cmdMove(g, 0, 0, 300, 400);
+    tick(g);
+    expect(u.mode as string).toBe("field");
+    expect(Math.hypot(u.x - x0, u.y - y0)).toBeLessThan(10);
+  });
+
+  test("出城中の部隊のカードを自城エリアへ戻すと、着くまでは歩き、着いた後は一瞬で移動する", () => {
+    const { g, u } = solo();
+    cmdMove(g, 0, 0, 300, C.FIELD_H - 400);
+    run(g, 6);
+    expect(u.mode as string).toBe("field");
+    cmdMove(g, 0, 0, 120, castleY); // カードを自城エリアへ戻す
+    tick(g);
+    expect(u.mode as string).toBe("field"); // まだ城エリアに着いていない
+    expect(Math.abs(u.x - 120) + Math.abs(u.y - castleY)).toBeGreaterThan(50); // 一瞬では着かない
+    for (let i = 0; i < 20 * 30 && u.mode !== "castle"; i++) tick(g);
+    expect(u.mode as string).toBe("castle");
+    cmdMove(g, 0, 0, 540, castleY - 10);
+    tick(g);
+    expect(u.x).toBe(540);
+    expect(u.y).toBe(castleY - 10);
+  });
+
+  test("出城している間は、今までどおり兵種の速さで歩いて移動する", () => {
+    const { g, u } = solo();
+    cmdMove(g, 0, 0, 300, C.FIELD_H / 2);
+    tick(g); // 出城
+    const x0 = u.x;
+    const y0 = u.y;
+    run(g, 2);
+    expect(u.mode as string).toBe("field");
+    const walked = Math.hypot(u.x - x0, u.y - y0);
+    const expected = C.BASE_SPEED["槍兵"] * 2;
+    expect(walked).toBeGreaterThan(expected * 0.9);
+    expect(walked).toBeLessThan(expected * 1.1);
+  });
+
+  test("撤退中に城内へ置いたカードの位置へは、復活後に一瞬で移動する。城の外なら歩いて向かう", () => {
+    const { g, u } = solo();
+    u.mode = "field";
+    retire(g, u);
+    expect(cmdMove(g, 0, 0, 120, castleY)).toBeNull(); // 撤退中も目的地を指示できる
+    u.respawn = 0.05;
+    run(g, 0.5);
+    expect(u.mode as string).toBe("castle");
+    expect(u.x).toBe(120);
+    expect(u.y).toBe(castleY);
+
+    const b = solo();
+    b.u.mode = "field";
+    retire(b.g, b.u);
+    cmdMove(b.g, 0, 0, 300, C.FIELD_H / 2);
+    b.u.respawn = 0.05;
+    run(b.g, 0.5);
+    expect(b.u.mode as string).toBe("field");
+    expect(Math.abs(b.u.y - C.FIELD_H / 2)).toBeGreaterThan(100); // 目的地へ一瞬では着かない
+    expect(castleY - b.u.y).toBeLessThan(60); // 定位置の近くから歩き出している
+  });
+});
+
 describe("柵", () => {
   const fenceCard = (unit: UnitType = "槍兵") => pick((c) => c.skills.includes("柵") && c.unit === unit && c.cost === 1);
   const setup = (enemyCount = 1) => {
@@ -123,9 +246,10 @@ describe("柵", () => {
     const e = enemies[0]!;
     touch(g, e, fence);
     e.mode = "castle";
-    e.ty = 20; // カードが城内にあるので、出城しない
+    e.ty = 20; // カードが城内にあるので、出城しない(城内では、カードの位置へ一瞬で移動する)
     run(g, 0.1);
     expect(e.mode).toBe("castle");
+    expect(e.y).toBe(20);
     expect(fence.hp).toBe(C.FENCE_HP);
     touch(g, e, fence);
     e.mode = "dead";
