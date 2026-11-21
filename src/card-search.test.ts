@@ -17,10 +17,14 @@ describe("カードデータ", () => {
     }
   });
 
-  test("元のデータで読みが null のカードは、名前が読みになる", () => {
-    const nulls = (raw as { id: string; name: string; kana: string | null }[]).filter((r) => !r.kana);
-    expect(nulls.length).toBeGreaterThan(0); // データにはまだ null がある。読み込み時に正規化している
-    for (const r of nulls) expect(CARDS.find((c) => c.id === r.id)!.kana).toBe(r.name);
+  test("元のデータで読みが null(または空)のカードは、読み込み後は名前が読みになる", () => {
+    const rows = raw as { id: string; name: string; kana: string | null }[];
+    for (const r of rows.filter((x) => !x.kana)) expect(CARDS.find((c) => c.id === r.id)!.kana).toBe(r.name);
+    // 読みがあるカードは、そのまま
+    for (const r of rows.filter((x) => x.kana)) expect(CARDS.find((c) => c.id === r.id)!.kana).toBe(r.kana!);
+    // 読みが null だったことが知られているカード(名前がひらがな・カタカナの武将)
+    expect(byName("ねね").kana).toBe("ねね");
+    expect(byName("チンギス・ハン").kana).toBe("チンギス・ハン");
   });
 });
 
