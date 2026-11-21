@@ -336,6 +336,24 @@ describe("シミュレーション", () => {
     expect(b.hp).toBe(b.maxHp);
   });
 
+  test("撤退中も目的地を指示でき、部隊は復活するまで動かず、復活したらその目的地へ向かう", () => {
+    const g = createGame(mk([ofType("槍兵").id]), mk([ofType("槍兵").id]));
+    const a = unitOf(g, 0, 0)!;
+    a.mode = "dead";
+    a.respawn = 3;
+    const x0 = a.x;
+    const y0 = a.y;
+    expect(cmdMove(g, 0, 0, 300, 400)).toBeNull();
+    run(g, 2);
+    expect(a.mode as string).toBe("dead");
+    expect(a.x).toBe(x0);
+    expect(a.y).toBe(y0); // 撤退中は動かない
+    run(g, 3);
+    expect(a.mode as string).not.toBe("dead"); // 復活
+    run(g, 5);
+    expect(a.y).toBeLessThan(y0 - 20); // 指示した目的地(上)へ向かっている
+  });
+
   test("計略で士気を消費し、効果中は再度使えない", () => {
     const card = pick((c) => c.strat.categories.includes("強化") && !c.strat.categories.includes("短計") && c.strat.mp <= 5 && c.skills.length === 0 && c.cost === 1);
     const g = createGame(mk([card.id]), mk([ofType("槍兵").id]));

@@ -204,6 +204,7 @@ export class ComPlayer {
     this.pendingMove.set(slot, { x: wx, y: ly });
     this.later(s, (g) => {
       this.pendingMove.delete(slot);
+      if (g.units.find((u) => u.p === this.p && u.slot === slot)?.mode === "dead") return; // 撤退した部隊には指示しない
       cmdMove(g, this.p, slot, wx, wy);
     });
   }
