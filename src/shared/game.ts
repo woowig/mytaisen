@@ -493,7 +493,6 @@ export function tick(g: Game, dt: number = C.DT) {
       u.charging = false;
       u.vel = 0;
       u.siege = 0;
-      if (u.card.skills.includes("伏")) u.ambush = true;
     }
     if (u.mode === "castle") u.hp = Math.min(u.maxHp, u.hp + u.maxHp * C.CASTLE_HEAL_RATE * dt);
   }
@@ -549,6 +548,7 @@ export function retire(g: Game, u: Unit) {
   u.siege = 0;
   // 「撤退するまで」の計略が味方・敵に与えた効果は、使用者の撤退で消える
   for (const o of g.units) o.buffs = o.buffs.filter((b) => !(b.src === u.id && b.until >= 1e8));
+  u.ambush = false;
   u.buffs = [];
   // 撤退で計略の効果は終わる(「撤退するまで」の計略も)
   if (g.t < u.stratEnd) {
@@ -568,8 +568,8 @@ export function retire(g: Game, u: Unit) {
 function respawn(g: Game, u: Unit) {
   u.mode = "castle";
   u.hp = u.maxHp;
-  u.ambush = has(u, "伏");
-  u.hidden = u.ambush;
+  u.ambush = false; // 伏兵になるのは開戦時だけ。復活しても伏兵には戻らない
+  u.hidden = false;
   u.kiPool = 0;
   if (u.card.unit === "剣豪") u.cdAction = C.SLASH_CD;
   if (has(u, "柵")) addFence(g.fences, u);
@@ -678,8 +678,9 @@ function resolveContacts(g: Game, dt: number) {
 }
 
 function ambushHit(g: Game, amb: Unit, other: Unit) {
-  const diff = Math.max(0, intelOf(g, amb) - intelOf(g, other));
-  damage(g, other, C.AMBUSH_DMG_BASE + diff * C.AMBUSH_DMG_PER_INTEL_DIFF, "ambush");
+  // 伏兵ダメージ = 相手の最大兵力 × ((自分の知力 ÷ 相手の知力) × 30 + 10)%。100%以上なら兵力をすべて削る
+  const pct = (intelOf(g, amb) / intelOf(g, other)) * C.AMBUSH_DMG_RATIO_K + C.AMBUSH_DMG_BASE_PCT;
+  damage(g, other, (other.maxHp * pct) / 100, "ambush");
   amb.ambush = false;
   amb.hidden = false;
   emit(g, { k: "reveal", x: amb.x, y: amb.y, p: amb.p });

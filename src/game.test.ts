@@ -1156,6 +1156,117 @@ describe("シミュレーション", () => {
 });
 
 
+describe("伏兵", () => {
+  /** 伏兵(先攻)と、それに触れる敵(後攻)。知力・武力を指定する。武力は小さくして、乱戦ダメージを無視できるようにする */
+  const pair = (ambIntel: number, tgtIntel: number, ambSkills?: string[]) => {
+    const amb = pick((c) => c.skills.length === 1 && c.skills[0] === "伏" && c.cost === 1 && c.unit === "槍兵");
+    const g = createGame(mk([amb.id]), mk([ofType("槍兵").id]));
+    const a = unitOf(g, 0, 0)!;
+    const b = unitOf(g, 1, 0)!;
+    a.card = { ...a.card, intel: ambIntel, strong: 1, ...(ambSkills ? { skills: ambSkills } : {}) };
+    b.card = { ...b.card, intel: tgtIntel, strong: 1 };
+    for (const [u, y] of [[a, 600], [b, 580]] as const) {
+      u.mode = "field";
+      u.x = 300;
+      u.y = y;
+      u.tx = u.x;
+      u.ty = u.y;
+    }
+    return { g, a, b };
+  };
+  const revealCount = (g: Game, p: 0 | 1) => g.fx.filter((f) => f.k === "reveal" && f.p === p).length;
+  const seenByEnemy = (g: Game) => snapshotFor(g, 1).units.some((u) => u.p === 0 && u.slot === 0);
+
+  test("伏兵ダメージは、相手の最大兵力 × ((自分の知力÷相手の知力)×30+10)%", () => {
+    for (const [ai, ti, expected] of [[8, 4, 70], [6, 6, 40], [4, 8, 25]] as const) {
+      const { g, a, b } = pair(ai, ti);
+      expect(a.hidden).toBe(true);
+      tick(g);
+      expect(100 - b.hp).toBeCloseTo(expected, 0); // 乱戦ダメージ(武力1)の分は誤差
+      expect(100 - b.hp).toBeGreaterThanOrEqual(expected);
+      expect(a.ambush).toBe(false);
+      expect(a.hidden).toBe(false);
+    }
+  });
+
+  test("伏兵ダメージが100%以上のときは、相手の兵力をすべて削り、相手が撤退する", () => {
+    const { g, b } = pair(10, 2); // 160%
+    tick(g);
+    expect(b.hp).toBeLessThanOrEqual(0);
+    expect(b.mode as string).toBe("dead");
+  });
+
+  test("知力は接触した時点の値(特技「先」の増減を含む)で計算される", () => {
+    const early = pair(5, 5, ["伏", "先"]); // 先陣の間は知力+2: (7÷5)×30+10 = 52%
+    tick(early.g);
+    expect(100 - early.b.hp).toBeGreaterThanOrEqual(52);
+    expect(100 - early.b.hp).toBeLessThan(53);
+    const late = pair(5, 5, ["伏", "先"]); // 先陣が終わった後: (5÷5)×30+10 = 40%
+    late.g.t = C.SENJIN_T + 1;
+    tick(late.g);
+    expect(100 - late.b.hp).toBeGreaterThanOrEqual(40);
+    expect(100 - late.b.hp).toBeLessThan(41);
+  });
+
+  test("伏兵ダメージは1回だけ。触れ続けても2回目は入らず、解除後も見えたまま", () => {
+    const { g, a, b } = pair(8, 4); // 70%
+    run(g, 1);
+    expect(revealCount(g, 0)).toBe(1);
+    expect(100 - b.hp).toBeGreaterThanOrEqual(70);
+    expect(100 - b.hp).toBeLessThan(74); // 1秒間の乱戦ダメージ(武力1)の分だけ
+    expect(a.ambush).toBe(false);
+    for (let i = 0; i < 40; i++) {
+      tick(g);
+      expect(a.hidden).toBe(false);
+      if (b.mode !== "dead") expect(seenByEnemy(g)).toBe(true);
+    }
+    expect(revealCount(g, 0)).toBe(1);
+  });
+
+  test("解除後は、帰城して出城し直しても、伏兵に戻らない", () => {
+    const { g, a, b } = pair(8, 4);
+    run(g, 0.2);
+    expect(a.ambush).toBe(false);
+    b.mode = "dead"; // 接触を終わらせる
+    b.respawn = 100;
+    cmdMove(g, 0, 0, 300, C.FIELD_H - 40);
+    for (let i = 0; i < 20 * 40 && a.mode !== "castle"; i++) tick(g);
+    expect(a.mode as string).toBe("castle");
+    expect(a.ambush).toBe(false);
+    expect(a.hidden).toBe(false);
+    cmdMove(g, 0, 0, 300, 600);
+    run(g, 6);
+    expect(a.mode as string).toBe("field");
+    expect(a.ambush).toBe(false);
+    expect(seenByEnemy(g)).toBe(true);
+  });
+
+  test("撤退して復活しても、伏兵に戻らない(解除される前に撤退した場合も同じ)", () => {
+    for (const revealedFirst of [true, false]) {
+      const { g, a, b } = pair(8, 4);
+      if (revealedFirst) {
+        run(g, 0.2);
+        expect(a.ambush).toBe(false);
+      } else {
+        b.mode = "dead"; // 触れていないので、まだ伏兵のまま
+        b.respawn = 100;
+        expect(a.ambush).toBe(true);
+      }
+      retire(g, a);
+      a.respawn = 0.05;
+      run(g, 0.5);
+      expect(a.mode as string).toBe("castle");
+      expect(a.ambush).toBe(false);
+      expect(a.hidden).toBe(false);
+      cmdMove(g, 0, 0, 300, 600);
+      run(g, 6);
+      expect(a.mode as string).toBe("field");
+      expect(a.hidden).toBe(false);
+      expect(seenByEnemy(g)).toBe(true);
+    }
+  });
+});
+
 describe("COM(ひとりで練習)", () => {
   const comInfo = (seed: number) => {
     const d = makeComDeck(makeRng(seed));
